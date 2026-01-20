@@ -1,0 +1,135 @@
+CONFIG_URL = "abc"
+ConfigUrl = ""
+
+[Http]
+DangerousAutoWhitelist = true
+CORES = "*"
+JwtSecret = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz2N24PKSvwi2OL1FlKVl
+KZVxsMO+5124pRshwuv5OXly8GSeozUMU0tHTNUauaZ0VtWOr77KVk89RunXCyYw
+eYlCEid8hx0LvEE8Y7c9lKBTE+QHDirQcA2O3wlceeK1jd3+wl3Mnsl2MhEwsIlh
+xsv7CBvcVTjAfOdrDn0R/pEnfRe9jk3euiEzzb+CdW8tbz8gmwh3JhyHeRFud2Qp
+4deEZhFje81z8m0CDFv87UHaq77jNG1JTOzCUTxBk1xLar2ZUAfRn7zeRk3KHj4u
+8KAF7Ydc01m6r6589LP+WJA1XLfCuiP2pDs66ZB4nxoMYFeo+pZq41NjvpKIEiaB
+awIDAQAB
+-----END PUBLIC KEY-----
+"""
+MaxBufferSize = 10485760
+Path = "/"
+Port = 81
+
+[[HttpRPC]]
+Jwt = "ther's no such jwt"
+Name = "doptime"
+UrlBase = "https://api.doptime.com"
+
+[[Redis]]
+DB = 0
+Host = "dragonflyprojects.lan"
+Name = "default"
+Password = "XWkHqup04Gcm7Plieh5x"
+Port = 6379
+Username = ""
+
+[[Redis]]
+DB = 5
+Host = "dragonflyprojects.lan"
+Name = "testoutgo"
+Password = "XWkHqup04Gcm7Plieh5x"
+Port = 6379
+Username = ""
+
+[[Redis]]
+DB = 0
+Host = "dragonflyprojects.lan"
+Name = "dragonflyprojects"
+Password = "XWkHqup04Gcm7Plieh5x"
+Port = 6379
+Username = ""
+
+[[Redis]]
+DB = 2
+Host = "dragonflyprojects.lan"
+Name = "Catalogs"
+Password = "XWkHqup04Gcm7Plieh5x"
+Port = 6379
+Username = ""
+
+[[Redis]]
+DB = 2
+Host = "dragonflyprojects.lan"
+Name = "usecase"
+Password = "XWkHqup04Gcm7Plieh5x"
+Port = 6379
+Username = ""
+
+
+
+# [[Redis]]
+# DB = 2
+# Host = "keydb.lan"
+# Name = "def6379"
+# Password = "mXJLFAt3y47woLF5AkNiKs3ug1D0yWz8"
+# Port = 6379
+# Username = ""
+
+[Settings]
+LogLevel = 1
+SUToken = "HboVsNf0bMa1fYq9HXr02SaRD7yz3gyj"
+
+[[EvoRealms]]
+Name = "RedisDB"
+Enable = false
+RootPath = "/Users/yang/doptime/redisdb"
+SkipFiles = ".DS_Store,.gitignore,.mod,.sum"
+SkipDirs = "doc,.git,.idea,.vscode,.evolab"
+
+[[EvoRealms]]
+Name = "doptimeutils"
+Enable = false
+RootPath = "/Users/yang/doptime/doptime/utils"
+SkipFiles = ".DS_Store,.gitignore,.mod,.sum,.excalidraw,.png,.mdx,*.go"
+SkipDirs = ".git,.idea,.vscode,3rd_lang,DockerFile,test,.evolab,vars,"
+
+[[EvoRealms]]
+Name = "doptime"
+Enable = false
+RootPath = "/Users/yang/doptime/doptime"
+SkipFiles = ".DS_Store,.gitignore,.mod,.sum,.excalidraw,.png,.mdx"
+SkipDirs = ".git,.idea,.vscode,3rd_lang,DockerFile,test,.evolab,vars,"
+
+[[EvoRealms]]
+Name = "aircraft"
+Enable = false
+RootPath = "/Users/yang/aircraft"
+SkipFiles = ".DS_Store,.gitignore,.mod,.sum"
+SkipDirs = ".git,.idea,.vscode,.evolab"
+
+[[EvoRealms]]
+Name = "aircraftwing"
+Enable = false
+RootPath = "/Users/yang/aircraft/wing"
+SkipFiles = ".DS_Store,.gitignore,.mod,.sum,expired_ideas.md"
+SkipDirs = ".git,.idea,.vscode,.evolab"
+
+[[EvoRealms]]
+Name = "btctrade"
+Enable = false
+RootPath = "/Users/yang/btctrade"
+SkipFiles = ".DS_Store,.gitignore,.mod,.sum,expired_ideas.md"
+SkipDirs = ".git,.idea,.vscode,.evolab,.ignored"
+
+[[EvoRealms]]
+Name = "learniverse"
+Enable = false
+RootPath = "/Users/yang/learniverse"
+SkipFiles = ".DS_Store,.gitignore,.mod,.sum,expired_ideas.md"
+SkipDirs = ".git,.idea,.vscode,.evolab,.ignored"
+
+[[EvoRealms]]
+Name = "doptime-client"
+Enable = true
+RootPath = "/Users/yang/doptime/doptime-client"
+SkipFiles = ".DS_Store,.gitignore,.mod,.sum,package-lock.json"
+SkipDirs = ".git,.idea,.vscode,.evolab,.ignored,node_modules,lib"
+
