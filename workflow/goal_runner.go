@@ -6,8 +6,8 @@ import (
 	"sysevov2/agent"
 	"sysevov2/context"
 	"sysevov2/editing"
+	"sysevov2/llm"
 	"sysevov2/models"
-	"sysevov2/tool"
 )
 
 type GoalRunner struct {
@@ -57,7 +57,7 @@ Guidelines:
 
 	// 定义 Tool 回调
 	// 当 Gemini 调用 ApplyModification 时，直接触发 editing.ApplyModification
-	r.Editor.WithTools(tool.NewTool("ApplyModification", "Modify code chunk", func(mod *models.CodeModification) {
+	r.Editor.WithTools(llm.NewTool("ApplyModification", "Modify code chunk", func(mod *models.CodeModification) {
 		mod.GoalID = goal
 		if err := editing.ApplyModification(mod); err != nil {
 			fmt.Printf("❌ Edit Failed: %v\n", err)

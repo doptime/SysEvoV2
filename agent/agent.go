@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"sysevov2/llm"
-	"sysevov2/tool"
 	"sysevov2/utils"
 
 	"github.com/doptime/redisdb"
@@ -56,7 +55,7 @@ type Agent struct {
 	ToolCallRunningMutext interface{}
 }
 
-func Create(_template *template.Template, tools ...tool.ToolInterface) (a *Agent) {
+func Create(_template *template.Template, tools ...llm.ToolInterface) (a *Agent) {
 	a = &Agent{
 		Models:         []*llm.Model{llm.ModelDefault},
 		toolsCallbacks: map[string]func(Param interface{}, CallMemory map[string]any) error{},
@@ -74,7 +73,7 @@ func (a *Agent) WithToolCallsCheckedBeforeCalling(checkToolCallsBeforeCalling fu
 	a.CheckToolCallsBeforeCalling = checkToolCallsBeforeCalling
 	return a
 }
-func (a *Agent) WithTools(tools ...tool.ToolInterface) (ret *Agent) {
+func (a *Agent) WithTools(tools ...llm.ToolInterface) (ret *Agent) {
 	ret = &Agent{}
 	*ret = *a
 	for _, tool := range tools {
