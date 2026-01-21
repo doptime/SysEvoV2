@@ -9,11 +9,59 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"sysevov2/models"
 	"sysevov2/storage"
 )
+
+func RunParallelIndexing(roots []string, numThreads int) error {
+	if numThreads <= 0 {
+		numThreads = 1
+	}
+
+	var wg sync.WaitGroup
+	// 使用缓冲 channel 限制并发协程数
+	semaphore := make(chan struct{}, numThreads)
+
+	// 用于捕获并发过程中的错误
+	errChan := make(chan error, len(roots))
+
+	fmt.Printf("🚀 Starting parallel indexing with %d threads...\n", numThreads)
+
+	for _, root := range roots {
+		wg.Add(1)
+
+		go func(path string) {
+			defer wg.Done()
+
+			// 获取信号量（如果达到 numThreads 则阻塞）
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }() // 释放信号量
+
+			fmt.Printf("🧵 Thread processing: %s\n", path)
+
+			// 调用原有的 RunIncrementalIndexing 函数
+			if err := RunIncrementalIndexing(path); err != nil {
+				fmt.Printf("❌ Error indexing %s: %v\n", path, err)
+				errChan <- err
+			}
+		}(root)
+	}
+
+	// 等待所有任务完成
+	wg.Wait()
+	close(errChan)
+
+	// 检查是否有错误发生
+	if len(errChan) > 0 {
+		return fmt.Errorf("parallel indexing completed with %d errors", len(errChan))
+	}
+
+	fmt.Println("✅ Parallel indexing finished successfully.")
+	return nil
+}
 
 // RunIncrementalIndexing 执行增量代码分析与索引构建
 func RunIncrementalIndexing(projectRoot string) error {

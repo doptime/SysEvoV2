@@ -12,7 +12,7 @@ import (
 
 // analyzerScriptPath 定义分析器脚本的相对路径
 // 部署时确保 analyzers 目录和二进制文件在一起，或者通过环境变量配置
-const analyzerScriptPath = "analyzers/ts/index.js"
+const analyzerScriptPath = "../analysis/analyzer.js"
 
 // ParseTSFile 启动一个 Node 子进程来分析目标文件
 func ParseTSFile(targetPath string) ([]*models.Chunk, error) {

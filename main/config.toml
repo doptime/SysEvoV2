@@ -1,0 +1,25 @@
+CONFIG_URL = ""
+ConfigUrl = ""
+
+[Http]
+DangerousAutoWhitelist = true
+CORES = "*"
+JwtSecret = """
+"""
+MaxBufferSize = 10485760
+Path = "/"
+Port = 81
+
+[[HttpRPC]]
+Jwt = "ther's no such jwt"
+Name = "doptime"
+UrlBase = "https://api.doptime.com"
+
+[[Redis]]
+DB = 6
+Host = "dragonflyprojects.lan"
+Name = "default"
+Password = "XWkHqup04Gcm7Plieh5x"
+Port = 6379
+Username = ""
+
