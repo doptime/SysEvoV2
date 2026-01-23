@@ -53,15 +53,6 @@ func LoadbalancedPick(models ...*Model) *Model {
 	return ModelPicker.Pick().(*Model)
 }
 
-// func LoadBalanceChoose(models ...*Model) *Model {
-// 	Choices := make([]weightedrand.Choice, len(models))
-// 	for i, model := range models {
-// 		Choices[i] = weightedrand.Choice{Item: model, Weight: uint(500000 / (model.ResponseTime().Seconds() + 1))}
-// 	}
-// 	ModelPicker, _ := weightedrand.NewChooser(Choices...)
-// 	return ModelPicker.Pick().(*Model)
-// }
-
 type ModelList struct {
 	Name         string
 	SelectCursor int
@@ -71,7 +62,7 @@ type ModelList struct {
 var EloModels = ModelList{
 	Name: "EloModels",
 	Models: []*Model{
-		Qwen3B14,
+		Qwen3Next80B,
 		Qwen30BA3,
 	},
 }

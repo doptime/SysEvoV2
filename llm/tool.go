@@ -201,20 +201,21 @@ func buildSchemaForType(t reflect.Type) (map[string]any, *genai.Schema) {
 	return oaiSchema, googleSchema
 }
 
+var _mapKindToDataType = map[reflect.Kind]string{
+	reflect.Struct:  "object",
+	reflect.Float32: "number", reflect.Float64: "number",
+	reflect.Int: "integer", reflect.Int8: "integer", reflect.Int16: "integer", reflect.Int32: "integer", reflect.Int64: "integer",
+	reflect.Uint: "integer", reflect.Uint8: "integer", reflect.Uint16: "integer", reflect.Uint32: "integer", reflect.Uint64: "integer",
+	reflect.String:  "string",
+	reflect.Slice:   "array",
+	reflect.Array:   "array",
+	reflect.Bool:    "boolean",
+	reflect.Invalid: "null",
+	reflect.Map:     "object",
+}
+
 func mapKindToDataType(kind reflect.Kind) string {
-	var mapKindToDataType = map[reflect.Kind]string{
-		reflect.Struct:  "object",
-		reflect.Float32: "number", reflect.Float64: "number",
-		reflect.Int: "integer", reflect.Int8: "integer", reflect.Int16: "integer", reflect.Int32: "integer", reflect.Int64: "integer",
-		reflect.Uint: "integer", reflect.Uint8: "integer", reflect.Uint16: "integer", reflect.Uint32: "integer", reflect.Uint64: "integer",
-		reflect.String:  "string",
-		reflect.Slice:   "array",
-		reflect.Array:   "array",
-		reflect.Bool:    "boolean",
-		reflect.Invalid: "null",
-		reflect.Map:     "object",
-	}
-	_type, ok := mapKindToDataType[kind]
+	_type, ok := _mapKindToDataType[kind]
 	if !ok {
 		return "type_unspecified"
 	}

@@ -1,0 +1,6 @@
+__debug_bin
+configdoptime.toml
+.vscode/
+/**/*.expired
+/**/*.zip
+/.**/

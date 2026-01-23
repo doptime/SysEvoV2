@@ -12,8 +12,7 @@ import (
 	"sysevov2/agent"
 	"sysevov2/config"
 	"sysevov2/evo"
-	"sysevov2/models"
-	"sysevov2/tool"
+	"sysevov2/llm"
 	"sysevov2/utils"
 
 	"github.com/doptime/redisdb"
@@ -184,7 +183,7 @@ Analyze parent solutions for successful patterns and failures. Design minimal ch
 
 Execute through multiple Updates calls. Each should be independent and complete.
 
-`))).WithToolCallMutextRun().WithTools(tool.NewTool("Updates", "提交代码文本变更，针对1)文件变动 2)内容变动", func(edits *Updates) {
+`))).WithToolCallMutextRun().WithTools(llm.NewTool("Updates", "提交代码文本变更，针对1)文件变动 2)内容变动", func(edits *Updates) {
 	edits.NewName = lo.CoalesceOrEmpty(edits.NewName, edits.FileName)
 	edits.FileName = lo.CoalesceOrEmpty(edits.FileName, edits.NewName)
 
@@ -259,8 +258,8 @@ func TakeAGoal(realm *config.EvoRealm) (GoalFile string) {
 func StartAGoal(GoalFile string, realm *config.EvoRealm, Realms ...string) {
 
 	const TurnNum = 6
-	//Qwen3B235Thinking2507 , models.Qwen3Next80BThinking, models.Qwen3Next80B
-	modelList := models.NewModelList("Qwen3Next80b", models.Qwen3B235Thinking2507, models.Qwen3B235Thinking2507)
+	//Qwen3B235Thinking2507 , llm.Qwen3Next80BThinking, llm.Qwen3Next80B
+	modelList := llm.NewModelList("Qwen3Next80b", llm.Qwen3B235Thinking2507, llm.Qwen3B235Thinking2507)
 	relativePath := realm.RelativePath(GoalFile)
 	GoalContent := utils.TextFromFile(GoalFile)
 
@@ -304,7 +303,7 @@ func StartAGoal(GoalFile string, realm *config.EvoRealm, Realms ...string) {
 			AgentEvoAGoal.Call(map[string]any{
 				//agent.UseCopyPromptOnly: true,
 				agent.UseModel: modelList.SequentialPick(), //.WithToolsInUserPrompt(), //CopyPromptOnly().
-				//  //Qwen3B32Thinking  model := []*models.Model{models.Qwendeepresearch, models.Qwen3Next80B,models.Qwen3B235Thinking2507}[j%2]
+				//  //Qwen3B32Thinking  model := []*llm.Model{llm.Qwendeepresearch, llm.Qwen3Next80B,llm.Qwen3B235Thinking2507}[j%2]
 				"SystemEvolutionGoal": "\n\n<GoalFile path=\"" + relativePath + "\">\n" + GoalContent + "\n</GoalFile>\n",
 				"CurrentSystem":       config.WithSelectedRealms(Realms...).LoadAllEvoProjects(),
 				"ParentSolutions":     lo.Values(Solutions),

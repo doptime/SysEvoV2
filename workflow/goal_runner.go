@@ -2,71 +2,65 @@ package workflow
 
 import (
 	"fmt"
+	"text/template"
 
 	"sysevov2/agent"
 	"sysevov2/context"
-	"sysevov2/editing"
+	"sysevov2/editing" // 假设你的 ApplyModification 在这里
 	"sysevov2/llm"
 	"sysevov2/models"
 )
 
 type GoalRunner struct {
-	Selector *context.Selector
-	Editor   *agent.Agent // 负责生成的 Cloud Agent (Gemini)
+	Selector    *context.Selector
+	EditorAgent *agent.Agent
 }
 
-func NewRunner(localAgent, cloudAgent *agent.Agent) *GoalRunner {
+var LLMToolApplyModification = llm.NewTool("ApplyModification", "Modify a code chunk", func(mod *models.CodeModification) {
+	if err := editing.ApplyModification(mod); err != nil {
+		fmt.Printf("❌ Edit Failed: %v\n", err)
+	} else {
+		fmt.Printf("✅ Applied: %s\n", mod.TargetChunkID)
+	}
+})
+
+func NewRunner() *GoalRunner {
+	t := template.Must(template.New("GoalEditor").Parse(`
+You are a Senior Engineer. Achieve the Goal by modifying code chunks.
+<Context>
+{{.Context}}
+</Context>
+
+<Goal>
+{{.Goal}}
+</Goal>
+`))
+
+	// 创建 Editor Agent 并绑定 ApplyModification 工具
+	editor := agent.Create(t).WithToolCallMutextRun().WithTools(LLMToolApplyModification)
+
 	return &GoalRunner{
-		Selector: context.NewSelector(localAgent),
-		Editor:   cloudAgent,
+		Selector:    context.NewSelector(),
+		EditorAgent: editor,
 	}
 }
 
-// ExecuteGoal 执行单个目标
-func (r *GoalRunner) ExecuteGoal(goal string) error {
-	// 1. 上下文筛选
-	chunks, err := r.Selector.SelectRelevantChunks(goal)
+func (r *GoalRunner) ExecuteGoal(goal string, localModel, cloudModel *llm.Model) error {
+	// 1. 获取上下文
+	chunks, err := r.Selector.SelectRelevantChunks(goal, localModel)
 	if err != nil {
 		return err
 	}
 
-	// 2. 构造 Prompt 给 Gemini
-	// 将选中的 Chunk 代码拼接
 	var contextStr string
 	for _, c := range chunks {
-		contextStr += fmt.Sprintf("// File: %s\n// Chunk: %s\n%s\n\n", c.FilePath, c.ID, c.Body)
+		contextStr += fmt.Sprintf("// File: %s, Chunk: %s\n%s\n\n", c.FilePath, c.ID, c.Body)
 	}
 
-	sysPrompt := `You are a Senior Go Engineer.
-Your task: Generate code modifications to achieve the Goal.
-You have been provided with the relevant code context (CHUNKS).
-
-Guidelines:
-1. Use the "ApplyModification" tool to make changes.
-2. TargetChunkID must be precise (e.g., "main.go:Process").
-3. NewContent must be the COMPLETE new code for that chunk.
-4. If creating a new file, use "CREATE_FILE" action.`
-
-	// 3. 调用 Cloud Agent
-	params := map[string]any{
-		"SystemPrompt": sysPrompt,
+	// 2. 调用生成
+	return r.EditorAgent.Call(map[string]any{
+		agent.UseModel: cloudModel,
 		"Goal":         goal,
-		"Chunks":       contextStr,
-		agent.UseModel: r.Editor.Models[0], // Gemini
-	}
-
-	// 定义 Tool 回调
-	// 当 Gemini 调用 ApplyModification 时，直接触发 editing.ApplyModification
-	r.Editor.WithTools(llm.NewTool("ApplyModification", "Modify code chunk", func(mod *models.CodeModification) {
-		mod.GoalID = goal
-		if err := editing.ApplyModification(mod); err != nil {
-			fmt.Printf("❌ Edit Failed: %v\n", err)
-		} else {
-			fmt.Printf("✅ Edit Applied: %s\n", mod.TargetChunkID)
-		}
-	}))
-
-	// 4. 执行生成 (Agent 内部会自动处理 Tool 调用)
-	fmt.Println("🚀 Generating Code...")
-	return r.Editor.Call(params)
+		"Context":      contextStr,
+	})
 }
