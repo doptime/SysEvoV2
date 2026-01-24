@@ -91,6 +91,7 @@ func ToolcallParserDefault(resp openai.ChatCompletionResponse) (toolCalls []*Fun
 			rsp = rsp[:ind2+1] + "</tool_call>"
 		}
 
+		rsp = strings.ReplaceAll(rsp, "minimax:tool_call>", "tool_call>")
 		rsp = strings.ReplaceAll(rsp, "/function_calls>", "tool_call>")
 		rsp = strings.ReplaceAll(rsp, "function_calls>", "tool_call>")
 		rsp = strings.ReplaceAll(rsp, "tool_code>", "tool_call>")

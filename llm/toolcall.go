@@ -57,7 +57,9 @@ For each function call, output the function name and arguments within the follow
 `)
 
 func (toolInPrompt *ToolInPrompt) WithToolcallSysMsg(tools []openai.Tool, req *openai.ChatCompletionRequest) {
-
+	if req == nil {
+		return
+	}
 	if len(tools) == 0 {
 		return
 	}
@@ -73,7 +75,9 @@ func (toolInPrompt *ToolInPrompt) WithToolcallSysMsg(tools []openai.Tool, req *o
 
 		// 去掉末尾的换行符（Encode 会自动添加换行符）
 		jsonStr := buf.String()
-		jsonStr = jsonStr[:len(jsonStr)-1]
+		if len(jsonStr) > 0 {
+			jsonStr = jsonStr[:len(jsonStr)-1]
+		}
 		ToolStr = append(ToolStr, template.HTML(jsonStr))
 	}
 	ToolCallMsg := lo.Ternary(strings.Contains(req.Model, "GLM-4.5-Air"), ToolCallGlm45Air, ToolCallMsgQwen)

@@ -9,13 +9,15 @@ import (
 	"sysevov2/llm"
 	"sysevov2/models"
 	"sysevov2/storage"
+	"sysevov2/utils"
 
 	"github.com/samber/lo"
 )
 
 type Selector struct {
 	// 使用模板定义的 Agent
-	SelectionAgent *agent.Agent
+	SelectionAgent   *agent.Agent
+	FilesMustInclude []string
 }
 
 // 定义 LLM 输出的结构体体，对应 Tool 参数
@@ -29,6 +31,10 @@ func NewSelector() *Selector {
 You are a Code Context Selector. Analyze the Intent and the Candidates.
 Return the IDs of chunks that are necessary to fulfill the intent.
 
+<Important Files>
+{{.ImportantFiles}}
+</Important Files>
+
 <Intent>
 {{.Intent}}
 </Intent>
@@ -36,9 +42,11 @@ Return the IDs of chunks that are necessary to fulfill the intent.
 <Candidates>
 {{.Candidates}}
 </Candidates>
+
+当你确定了需要选择的 Chunk ID 后，必须使用提供的工具函数提交结果。严禁仅以 Markdown 列表形式回复。
 `))
 
-	selAgent := agent.Create(t).WithToolCallMutextRun()
+	selAgent := agent.Create(t).WithToolCallMutextRun().WithModels(llm.ModelDefault)
 
 	return &Selector{
 		SelectionAgent: selAgent,
@@ -62,15 +70,16 @@ func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*mod
 
 	// 核心：使用闭包捕获选中的 ID
 	var finalIDs []string
-	s.SelectionAgent.WithTools(llm.NewTool("PickChunks", "Select necessary code chunks", func(res *SelectionResult) {
+	s.SelectionAgent = s.SelectionAgent.UseTools(llm.NewTool("PickChunks", "Select necessary code chunks (IDs)", func(res *SelectionResult) {
 		finalIDs = res.SelectedIDs
 	}))
 
 	// 调用 Agent
 	err := s.SelectionAgent.Call(map[string]any{
-		agent.UseModel: model,
-		"Intent":       intent,
-		"Candidates":   sb.String(),
+		agent.UseModel:   model,
+		"ImportantFiles": utils.TextFromFiles("ImportantFile", s.FilesMustInclude...),
+		"Intent":         intent,
+		"Candidates":     sb.String(),
 	})
 	if err != nil {
 		return nil, err

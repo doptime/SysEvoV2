@@ -61,7 +61,7 @@ func Create(_template *template.Template, tools ...llm.ToolInterface) (a *Agent)
 		toolsCallbacks: map[string]func(Param interface{}, CallMemory map[string]any) error{},
 		PromptTemplate: _template,
 	}
-	a.WithTools(tools...)
+	a.UseTools(tools...)
 	a.WithToolcallParser(nil)
 	return a
 }
@@ -73,7 +73,7 @@ func (a *Agent) WithToolCallsCheckedBeforeCalling(checkToolCallsBeforeCalling fu
 	a.CheckToolCallsBeforeCalling = checkToolCallsBeforeCalling
 	return a
 }
-func (a *Agent) WithTools(tools ...llm.ToolInterface) (ret *Agent) {
+func (a *Agent) UseTools(tools ...llm.ToolInterface) (ret *Agent) {
 	ret = &Agent{}
 	*ret = *a
 	for _, tool := range tools {
@@ -104,16 +104,6 @@ func (a *Agent) WithCallback(callback func(ctx context.Context, inputs string) e
 	a.CallBack = callback
 	return a
 }
-
-type QAPaire struct {
-	Time      time.Time
-	Model     string
-	Question  any
-	Response  any
-	ToolCalls any
-}
-
-var keyQA = redisdb.NewListKey[*QAPaire](redisdb.Opt.Rds("Catalogs"))
 
 func (a *Agent) Messege(params map[string]any) string {
 	var promptBuffer bytes.Buffer
@@ -239,16 +229,6 @@ func (a *Agent) Call(memories ...map[string]any) (err error) {
 
 	if err == nil {
 		model.ResponseTime(time.Since(timestart))
-		reqMesseges := lo.Map(req.Messages, func(m openai.ChatCompletionMessage, _ int) string {
-			return m.Content
-		})
-		resmesseges := lo.Map(resp.Choices, func(c openai.ChatCompletionChoice, _ int) string {
-			return c.Message.Content
-		})
-		toolCalls := lo.Map(resp.Choices, func(c openai.ChatCompletionChoice, _ int) any {
-			return c.Message.FunctionCall
-		})
-		keyQA.LPush(&QAPaire{Time: time.Now(), Model: model.Name, Question: reqMesseges, Response: resmesseges, ToolCalls: toolCalls})
 	}
 	fmt.Println("resp:", resp)
 	if err != nil {

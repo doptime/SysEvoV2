@@ -10,6 +10,22 @@ import (
 	"github.com/dustin/go-humanize"
 )
 
+func TextFromFiles(xmlTag string, filenames ...string) string {
+	var sb strings.Builder
+	for _, filename := range filenames {
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			fmt.Printf("Error reading file %s: %v\n", filename, err)
+			continue
+		}
+		text := string(content)
+		text = strings.TrimSpace(text)
+		if text != "" {
+			sb.WriteString(fmt.Sprintf("\n<%s name=\"%s\">\n%s\n</%s>\n", xmlTag, filename, text, xmlTag))
+		}
+	}
+	return sb.String()
+}
 func TextFromFile(filename string, Content ...*string) string {
 	content, err := os.ReadFile(filename)
 	if err != nil {

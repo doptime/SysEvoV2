@@ -101,6 +101,9 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 	oaiProperties := make(map[string]any)
 	googleProperties := make(map[string]*genai.Schema)
 
+	// Initialize the visited map to prevent infinite recursion
+	visited := make(map[reflect.Type]bool)
+
 	if vType.Kind() == reflect.Struct {
 		for i := 0; i < vType.NumField(); i++ {
 			field := vType.Field(i)
@@ -110,7 +113,7 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 			}
 
 			// Generate the schema for each field's type using the recursive helper.
-			fieldOAI, fieldGoogle := buildSchemaForType(field.Type)
+			fieldOAI, fieldGoogle := buildSchemaForType(field.Type, visited)
 
 			// The description from the tag belongs to the property definition itself.
 			fieldOAI["description"] = desc
@@ -153,7 +156,8 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 }
 
 // buildSchemaForType is the recursive helper function. It generates the schema for any given type.
-func buildSchemaForType(t reflect.Type) (map[string]any, *genai.Schema) {
+// Added visited map to prevent Stack Overflow on recursive types.
+func buildSchemaForType(t reflect.Type, visited map[reflect.Type]bool) (map[string]any, *genai.Schema) {
 	// Dereference pointers until we reach the base type
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -161,6 +165,23 @@ func buildSchemaForType(t reflect.Type) (map[string]any, *genai.Schema) {
 
 	oaiSchema := make(map[string]any)
 	googleSchema := &genai.Schema{}
+
+	// Check for recursion
+	if visited[t] {
+		// If we have seen this type before in the current chain, return a generic object reference
+		// or stop recursing to prevent stack overflow.
+		oaiSchema["type"] = "object" // Or handle as reference if schema supports it
+		googleSchema.Type = genai.TypeObject
+		return oaiSchema, googleSchema
+	}
+
+	// Mark type as visited for the scope of this branch
+	// We copy the map for branches or simply rely on backtracking logic?
+	// For simple schema generation, a shared map passed down works if we only care about cycles.
+	// To be strictly correct for a tree where the same type appears in different branches (not cyclic),
+	// we should technically unmark it on return, but for cycle detection, keeping it marked is safer/simpler.
+	visited[t] = true
+	defer func() { delete(visited, t) }() // Backtracking: allow same type in sibling branches
 
 	oaiSchema["type"] = mapKindToDataType(t.Kind())
 	googleSchema.Type = KindToJSONType(t.Kind())
@@ -179,7 +200,7 @@ func buildSchemaForType(t reflect.Type) (map[string]any, *genai.Schema) {
 			}
 
 			// Recursive call for the nested struct's fields
-			subOAI, subGoogle := buildSchemaForType(field.Type)
+			subOAI, subGoogle := buildSchemaForType(field.Type, visited)
 
 			subOAI["description"] = desc
 			subGoogle.Description = desc
@@ -193,7 +214,7 @@ func buildSchemaForType(t reflect.Type) (map[string]any, *genai.Schema) {
 	case reflect.Slice, reflect.Array:
 		// For a slice, we define the schema of its items.
 		elemType := t.Elem()
-		itemsOAI, itemsGoogle := buildSchemaForType(elemType) // Recursive call for the element type
+		itemsOAI, itemsGoogle := buildSchemaForType(elemType, visited) // Recursive call
 		oaiSchema["items"] = itemsOAI
 		googleSchema.Items = itemsGoogle
 	}
@@ -223,7 +244,5 @@ func mapKindToDataType(kind reflect.Kind) string {
 }
 
 func KindToJSONType(kind reflect.Kind) genai.Type {
-
 	return genai.Type(strings.ToUpper(mapKindToDataType(kind)))
-
 }
