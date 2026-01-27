@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/printer"
 	"go/token"
 	"os"
@@ -16,15 +17,17 @@ import (
 	"sysevov2/storage"
 )
 
+// RunParallelIndexing 并发执行索引构建
+// roots: 根目录列表 (e.g. ["./backend", "./frontend"])
+// numThreads: 并发协程数
 func RunParallelIndexing(roots []string, numThreads int) error {
 	if numThreads <= 0 {
 		numThreads = 1
 	}
 
 	var wg sync.WaitGroup
-	// 使用缓冲 channel 限制并发协程数
+	// 使用缓冲 channel 作为信号量限制并发协程数
 	semaphore := make(chan struct{}, numThreads)
-
 	// 用于捕获并发过程中的错误
 	errChan := make(chan error, len(roots))
 
@@ -32,7 +35,6 @@ func RunParallelIndexing(roots []string, numThreads int) error {
 
 	for _, root := range roots {
 		wg.Add(1)
-
 		go func(path string) {
 			defer wg.Done()
 
@@ -42,7 +44,6 @@ func RunParallelIndexing(roots []string, numThreads int) error {
 
 			fmt.Printf("🧵 Thread processing: %s\n", path)
 
-			// 调用原有的 RunIncrementalIndexing 函数
 			if err := RunIncrementalIndexing(path); err != nil {
 				fmt.Printf("❌ Error indexing %s: %v\n", path, err)
 				errChan <- err
@@ -50,11 +51,9 @@ func RunParallelIndexing(roots []string, numThreads int) error {
 		}(root)
 	}
 
-	// 等待所有任务完成
 	wg.Wait()
 	close(errChan)
 
-	// 检查是否有错误发生
 	if len(errChan) > 0 {
 		return fmt.Errorf("parallel indexing completed with %d errors", len(errChan))
 	}
@@ -63,15 +62,14 @@ func RunParallelIndexing(roots []string, numThreads int) error {
 	return nil
 }
 
-// RunIncrementalIndexing 执行增量代码分析与索引构建
+// RunIncrementalIndexing 执行单目录的增量代码分析与索引构建
 func RunIncrementalIndexing(projectRoot string) error {
-	// 1. 遍历项目文件
 	return filepath.Walk(projectRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
-			// 忽略非代码目录
+			// 忽略常见非代码目录
 			if strings.HasPrefix(info.Name(), ".") || info.Name() == "vendor" || info.Name() == "node_modules" {
 				return filepath.SkipDir
 			}
@@ -92,13 +90,13 @@ func RunIncrementalIndexing(projectRoot string) error {
 		fmt.Printf("🔍 Indexing: %s\n", path)
 
 		// 3. 解析代码 (Parse)
-		// 注意：这里需要你把之前的 parseGoFile / ParseTSFile 逻辑放进来或保留在同一包下
 		var chunks []*models.Chunk
 		var parseErr error
 
 		if ext == ".go" {
 			chunks, parseErr = ParseGoFile(path)
 		} else {
+			// 假设 ParseTSFile 在同包下的 parser_ts_sidecar.go 中定义
 			chunks, parseErr = ParseTSFile(path)
 		}
 
@@ -111,31 +109,66 @@ func RunIncrementalIndexing(projectRoot string) error {
 		for _, chunk := range chunks {
 			chunk.UpdatedAt = time.Now().Unix()
 
-			// A. 存储 Chunk 内容
+			// A. 存储 Chunk 内容 (Hash)
 			if _, err := storage.ChunkStorage.HSet(chunk.ID, chunk); err != nil {
 				fmt.Printf("❌ DB Error: %v\n", err)
 			}
 
-			// B. 建立反向索引 (Symbol -> ChunkIDs)
-			// === 核心修复点 ===
+			// B. 【核心修复】建立反向索引 (Set: Symbol -> ChunkIDs)
+			// 这使得 Selector 可以通过 Symbol 找到定义它的 Chunk
 			for _, symbol := range chunk.SymbolsDefined {
 				if len(symbol) < 2 {
 					continue
 				}
+				// 写入 Redis Set: sys/idx/sym/{symbol}
 				if err := storage.Indexer.AddSymbolLink(symbol, chunk.ID); err != nil {
 					fmt.Printf("⚠️ Index Error: %v\n", err)
 				}
 			}
 		}
 
-		// 5. 更新元数据
+		// 5. 更新元数据 (标记该文件已处理)
 		storage.FileMetaKey.HSet(path, info.ModTime().Unix())
 
 		return nil
 	})
 }
 
-// extractGoFunc 提取函数/方法
+// ParseGoFile 解析单个 Go 文件并返回 Chunks
+func ParseGoFile(path string) ([]*models.Chunk, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+
+	var chunks []*models.Chunk
+
+	// 遍历 AST 顶级声明
+	for _, decl := range node.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			// 提取函数或方法
+			chunks = append(chunks, extractGoFunc(d, fset, path, content))
+		case *ast.GenDecl:
+			// 提取类型定义 (struct, interface)
+			for _, spec := range d.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					chunks = append(chunks, extractGoType(d, typeSpec, fset, path, content))
+				}
+			}
+		}
+	}
+
+	return chunks, nil
+}
+
+// extractGoFunc 提取函数/方法 Chunk
 func extractGoFunc(fn *ast.FuncDecl, fset *token.FileSet, path string, content []byte) *models.Chunk {
 	name := fn.Name.Name
 	// 处理 Receiver (方法): User.Save
@@ -155,7 +188,7 @@ func extractGoFunc(fn *ast.FuncDecl, fset *token.FileSet, path string, content [
 		}
 	}
 
-	// 构造唯一 ID
+	// 构造唯一 ID: filepath:FunctionName
 	id := fmt.Sprintf("%s:%s", path, name)
 
 	// 提取完整代码 (Body)
@@ -171,13 +204,13 @@ func extractGoFunc(fn *ast.FuncDecl, fset *token.FileSet, path string, content [
 		Type:              "Function",
 		Skeleton:          skeleton,
 		Body:              fullBody,
-		SymbolsDefined:    []string{name},
-		SymbolsReferenced: extractGoSymbols(fn.Body), // 仅扫描函数体内部引用
+		SymbolsDefined:    []string{name},            // 定义了自己
+		SymbolsReferenced: extractGoSymbols(fn.Body), // 引用了别人
 		FilePath:          path,
 	}
 }
 
-// extractGoType 提取结构体/接口
+// extractGoType 提取结构体/接口 Chunk
 func extractGoType(decl *ast.GenDecl, spec *ast.TypeSpec, fset *token.FileSet, path string, content []byte) *models.Chunk {
 	name := spec.Name.Name
 	id := fmt.Sprintf("%s:%s", path, name)
@@ -186,12 +219,10 @@ func extractGoType(decl *ast.GenDecl, spec *ast.TypeSpec, fset *token.FileSet, p
 	end := fset.Position(decl.End()).Offset
 	fullBody := string(content[start:end])
 
-	// 对于类型定义，骨架通常即主体（不能删字段，否则无法推断），保留注释
-	// 也可以选择把 commentGroup 拼在前面
 	return &models.Chunk{
 		ID:                id,
 		Type:              "Type",
-		Skeleton:          fullBody,
+		Skeleton:          fullBody, // 对于 Type，骨架即全文
 		Body:              fullBody,
 		SymbolsDefined:    []string{name},
 		SymbolsReferenced: extractGoSymbols(spec.Type), // 扫描字段类型依赖
@@ -217,7 +248,7 @@ func generateGoSkeleton(fn *ast.FuncDecl, fset *token.FileSet) string {
 	return buf.String()
 }
 
-// extractGoSymbols 简单的脏符号提取器
+// extractGoSymbols 提取 AST 节点中引用的所有标识符
 func extractGoSymbols(node ast.Node) []string {
 	refs := make(map[string]struct{})
 	if node == nil {
@@ -247,8 +278,8 @@ func extractGoSymbols(node ast.Node) []string {
 				refs[ident.Name] = struct{}{}
 			}
 		case *ast.Ident:
-			// 可以选择捕获所有 Ident，但噪音较大，上面针对性捕获更准
-			// 这里仅作备选策略
+			// 备选策略：如果需要更激进的索引，可以取消注释
+			// refs[x.Name] = struct{}{}
 		}
 		return true
 	})
