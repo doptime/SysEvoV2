@@ -12,8 +12,27 @@ import (
 )
 
 // Merger 负责将非结构化的云端建议合并到本地代码库
+
+// Merger 负责将非结构化的云端建议合并到本地代码库
 type Merger struct {
-	MergerAgent *agent.Agent
+	MergerAgent      *agent.Agent
+	LocalContextFile string
+}
+
+func (m *Merger) WithLocalModel(model *llm.Model) *Merger {
+	m.MergerAgent.Models = []*llm.Model{model}
+	return m
+}
+
+func (m *Merger) WithContextFile(filePath string) *Merger {
+	m.LocalContextFile = filePath
+	return m
+}
+func (m *Merger) GetContextFile(filePath string) string {
+	if m.LocalContextFile != "" {
+		return m.LocalContextFile
+	}
+	return "GoalWithContext.txt"
 }
 
 func NewMerger() *Merger {
@@ -57,9 +76,9 @@ func NewMerger() *Merger {
 // RunManualMerge 执行合并流程
 // contextFilePath: 之前生成的 GoalWithContext.txt 路径
 // cloudResponsePath: 从剪切板复制，请确保内容已经位于接切板
-func (m *Merger) RunManualMerge(contextFilePath string, localModel *llm.Model) error {
+func (m *Merger) RunManualMerge() error {
 	// 1. 读取上下文和云端回复
-	ctxBytes := utils.TextFromFile(contextFilePath)
+	ctxBytes := utils.TextFromFile(m.GetContextFile(""))
 
 	cloudBytes := utils.TextFromClipboard()
 
@@ -67,7 +86,6 @@ func (m *Merger) RunManualMerge(contextFilePath string, localModel *llm.Model) e
 
 	// 2. 调用本地 Agent 解析并触发 ToolCall
 	return m.MergerAgent.Call(map[string]any{
-		agent.UseModel:  localModel,
 		"Context":       string(ctxBytes),
 		"CloudResponse": string(cloudBytes),
 	})

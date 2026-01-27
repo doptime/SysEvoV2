@@ -99,23 +99,49 @@ func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*mod
 
 func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) map[string]struct{} {
 	resultSet := make(map[string]struct{})
-	for _, id := range seeds {
-		resultSet[id] = struct{}{}
-	}
+
+	// 1. 初始化结果集，并收集所有需要查询的符号
+	uniqueSymbols := make(map[string]struct{}) // 用于符号去重
 
 	for _, id := range seeds {
+		resultSet[id] = struct{}{} // 将种子自身加入结果
+
 		chunk, ok := allChunks[id]
 		if !ok {
 			continue
 		}
+
+		// 收集该 Chunk 引用的所有符号
 		for _, refSymbol := range chunk.SymbolsReferenced {
-			targetIDs, _ := storage.Indexer.GetSymbolLinks(refSymbol)
+			// 简单的过滤：忽略过短的符号或特定内置符号（可选）
+			if len(refSymbol) > 1 {
+				uniqueSymbols[refSymbol] = struct{}{}
+			}
+		}
+	}
+
+	// 将去重后的符号转为切片
+	symbolList := make([]string, 0, len(uniqueSymbols))
+	for sym := range uniqueSymbols {
+		symbolList = append(symbolList, sym)
+	}
+
+	// 2. 【核心优化】使用 SUNION 一次性获取所有依赖的 ChunkID
+	if len(symbolList) > 0 {
+		targetIDs, err := storage.Indexer.GetUnionLinks(symbolList)
+		if err != nil {
+			fmt.Printf("Error fetching dependencies: %v\n", err)
+			// 出错时降级：不扩散，或者记录日志
+		} else {
+			// 3. 将存在的 Chunk 加入结果集
 			for _, tid := range targetIDs {
+				// 必须检查 tid 是否在当前加载的 allChunks 中（防止引用了已被删除的文件）
 				if _, exists := allChunks[tid]; exists {
 					resultSet[tid] = struct{}{}
 				}
 			}
 		}
 	}
+
 	return resultSet
 }

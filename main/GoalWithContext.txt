@@ -1,5 +1,5 @@
 <Goal>
- 检查脏扩散的功能代码是否符合预期。
+ 检查脏扩散的功能代码是否符合预期。重点检查索引的检查逻辑是否正确建立。现有的索引表并不包括反向符号索引。这会不会引发问题？如果会，如何改进？现在脏扩散的Level2 ID 表都是空的。并没有实现Level2的脏扩散。这部分合理的实现应该是什么样的？
 </Goal>
 
 // Important File: /Users/yang/SysEvoV2/README.md
@@ -202,48 +202,9 @@ type CodeModification struct {
 **指令:**
 本项目文档作为后续开发的**唯一真理来源 (Single Source of Truth)**。所有代码实现必须严格遵循上述数据结构与流程定义。 </File>
 
-<Chunk id="/Users/yang/SysEvoV2/utils/textFromfile.go:TextFromFiles"> 
-func TextFromFiles(xmlTag string, filenames ...string) string {
-	var sb strings.Builder
-	for _, filename := range filenames {
-		content, err := os.ReadFile(filename)
-		if err != nil {
-			fmt.Printf("Error reading file %s: %v\n", filename, err)
-			continue
-		}
-		text := string(content)
-		text = strings.TrimSpace(text)
-		if text != "" {
-			sb.WriteString(fmt.Sprintf("\n<%s name=\"%s\">\n%s\n</%s>\n", xmlTag, filename, text, xmlTag))
-		}
-	}
-	return sb.String()
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/models/models.go:Chunk"> 
-type Chunk struct {
-	// 唯一标识符: "filepath:start_byte-end_byte"
-	// msgpack: 数据库存储字段名
-	ID string `json:"id" msgpack:"id"`
-
-	// 类型: "Function", "Struct", "Interface"
-	Type string `json:"type" msgpack:"type"`
-
-	// 骨架: 仅签名 + 注释 (用于 Level 1 意图筛选)
-	Skeleton string `json:"skeleton" msgpack:"skeleton"`
-
-	// 全文: 完整的代码实现 (用于 Level 3 生成)
-	Body string `json:"body" msgpack:"body"`
-
-	// 符号表: 定义了什么符号
-	SymbolsDefined []string `json:"symbols_defined" msgpack:"symbols_defined"`
-
-	// 引用表: 调用了什么符号 (用于构建脏链接图)
-	SymbolsReferenced []string `json:"symbols_referenced" msgpack:"symbols_referenced"`
-
-	// 文件元数据: 用于增量更新检查
-	FilePath  string `json:"file_path" msgpack:"file_path"`
-	UpdatedAt int64  `json:"updated_at" msgpack:"updated_at"` // Unix Timestamp
+<Chunk id="/Users/yang/SysEvoV2/llm/tool.go:Name"> 
+func (t *Tool[v]) Name() string {
+	return t.Tool.Function.Name
 } </Chunk>
 
 <Chunk id="/Users/yang/SysEvoV2/utils/cannicalHash.go:ID"> 
@@ -268,27 +229,104 @@ func ID(v interface{}, Idlength ...int) string {
 	return result
 } </Chunk>
 
+<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.AddSymbolLink"> 
+func (c *DirtyIndexClient) AddSymbolLink(symbol string, chunkID string) error {
+	// Key 分隔符使用 "/"
+	key := fmt.Sprintf("sys/idx/sym/%s", symbol)
+
+	// NewSetKey 必须指定两个泛型 [k, v]，这里都是 string
+	// SAdd 返回 error
+	return redisdb.NewSetKey[string, string](redisdb.WithKey(key)).SAdd(chunkID)
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.GetSymbolLinks"> 
+func (c *DirtyIndexClient) GetSymbolLinks(symbol string) ([]string, error) {
+	key := fmt.Sprintf("sys/idx/sym/%s", symbol)
+
+	// SMembers 返回 []v, error
+	return redisdb.NewSetKey[string, string](redisdb.WithKey(key)).SMembers()
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.GetUnionLinks"> 
+func (c *DirtyIndexClient) GetUnionLinks(symbols []string) ([]string, error) {
+	if len(symbols) == 0 {
+		return []string{}, nil
+	}
+
+	// 1. 构造所有 Key
+	keys := make([]string, len(symbols))
+	for i, sym := range symbols {
+		// FIX: 确保前缀匹配 README (sys/idx/sym/)
+		keys[i] = fmt.Sprintf("sys/idx/sym/%s", sym)
+	}
+
+	// 2. 调用 Redis SUNION 命令
+	// 假设 redisdb 封装库支持 Do 或者直接支持 Sunion
+	// 如果你的 redisdb 库没有直接暴露 Sunion，通常会有 Do 方法
+	// 这里以通用 Redis 客户端写法为例：
+
+	// 方式 A: 如果 redisdb 是基于 go-redis 的封装
+	// return redisdb.Client.Sunion(context.Background(), keys...).Result()
+
+	// 方式 B: 使用 doptime 框架常见的 SetKey 并不直接支持多 Key 操作，
+	// 你可能需要通过底层的 client 执行。这里假设有一个全局 Client 或 RawClient
+	// 假设 redisdb.GetClient() 返回底层 *redis.Client
+	client, ok := cfgredis.Servers.Get("default")
+	if !ok {
+		return nil, fmt.Errorf("redis client not found")
+	}
+
+	cmd := client.SUnion(context.Background(), keys...)
+	return cmd.Result()
+} </Chunk>
+
 <Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.expandDependencies"> 
 func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) map[string]struct{} {
 	resultSet := make(map[string]struct{})
-	for _, id := range seeds {
-		resultSet[id] = struct{}{}
-	}
+
+	// 1. 初始化结果集，并收集所有需要查询的符号
+	uniqueSymbols := make(map[string]struct{}) // 用于符号去重
 
 	for _, id := range seeds {
+		resultSet[id] = struct{}{} // 将种子自身加入结果
+
 		chunk, ok := allChunks[id]
 		if !ok {
 			continue
 		}
+
+		// 收集该 Chunk 引用的所有符号
 		for _, refSymbol := range chunk.SymbolsReferenced {
-			targetIDs, _ := storage.Indexer.GetSymbolLinks(refSymbol)
+			// 简单的过滤：忽略过短的符号或特定内置符号（可选）
+			if len(refSymbol) > 1 {
+				uniqueSymbols[refSymbol] = struct{}{}
+			}
+		}
+	}
+
+	// 将去重后的符号转为切片
+	symbolList := make([]string, 0, len(uniqueSymbols))
+	for sym := range uniqueSymbols {
+		symbolList = append(symbolList, sym)
+	}
+
+	// 2. 【核心优化】使用 SUNION 一次性获取所有依赖的 ChunkID
+	if len(symbolList) > 0 {
+		targetIDs, err := storage.Indexer.GetUnionLinks(symbolList)
+		if err != nil {
+			fmt.Printf("Error fetching dependencies: %v\n", err)
+			// 出错时降级：不扩散，或者记录日志
+		} else {
+			// 3. 将存在的 Chunk 加入结果集
 			for _, tid := range targetIDs {
+				// 必须检查 tid 是否在当前加载的 allChunks 中（防止引用了已被删除的文件）
 				if _, exists := allChunks[tid]; exists {
 					resultSet[tid] = struct{}{}
 				}
 			}
 		}
 	}
+
 	return resultSet
 } </Chunk>
 
@@ -337,16 +375,95 @@ func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*mod
 	return result, nil
 } </Chunk>
 
-<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.GetSymbolLinks"> 
-func (c *DirtyIndexClient) GetSymbolLinks(symbol string) ([]string, error) {
-	key := fmt.Sprintf("sys/idx/sym/%s", symbol)
+<Chunk id="/Users/yang/SysEvoV2/models/models.go:Chunk"> 
+type Chunk struct {
+	// 唯一标识符: "filepath:start_byte-end_byte"
+	// msgpack: 数据库存储字段名
+	ID string `json:"id" msgpack:"id"`
 
-	// SMembers 返回 []v, error
-	return redisdb.NewSetKey[string, string](redisdb.WithKey(key)).SMembers()
+	// 类型: "Function", "Struct", "Interface"
+	Type string `json:"type" msgpack:"type"`
+
+	// 骨架: 仅签名 + 注释 (用于 Level 1 意图筛选)
+	Skeleton string `json:"skeleton" msgpack:"skeleton"`
+
+	// 全文: 完整的代码实现 (用于 Level 3 生成)
+	Body string `json:"body" msgpack:"body"`
+
+	// 符号表: 定义了什么符号
+	SymbolsDefined []string `json:"symbols_defined" msgpack:"symbols_defined"`
+
+	// 引用表: 调用了什么符号 (用于构建脏链接图)
+	SymbolsReferenced []string `json:"symbols_referenced" msgpack:"symbols_referenced"`
+
+	// 文件元数据: 用于增量更新检查
+	FilePath  string `json:"file_path" msgpack:"file_path"`
+	UpdatedAt int64  `json:"updated_at" msgpack:"updated_at"` // Unix Timestamp
 } </Chunk>
 
-<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient"> 
-type DirtyIndexClient struct{} </Chunk>
+<Chunk id="/Users/yang/SysEvoV2/utils/textFromfile.go:TextFromFiles"> 
+func TextFromFiles(xmlTag string, filenames ...string) string {
+	var sb strings.Builder
+	for _, filename := range filenames {
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			fmt.Printf("Error reading file %s: %v\n", filename, err)
+			continue
+		}
+		text := string(content)
+		text = strings.TrimSpace(text)
+		if text != "" {
+			sb.WriteString(fmt.Sprintf("\n<%s name=\"%s\">\n%s\n</%s>\n", xmlTag, filename, text, xmlTag))
+		}
+	}
+	return sb.String()
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/analysis/indexer.go:extractGoSymbols"> 
+func extractGoSymbols(node ast.Node) []string {
+	refs := make(map[string]struct{})
+	if node == nil {
+		return nil
+	}
+
+	// 深度优先遍历 AST
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.CallExpr:
+			// 捕获函数调用: foo() -> foo
+			if ident, ok := x.Fun.(*ast.Ident); ok {
+				refs[ident.Name] = struct{}{}
+			} else if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
+				// 捕获方法调用: pkg.Foo() -> Foo, pkg
+				refs[sel.Sel.Name] = struct{}{}
+				if id, ok := sel.X.(*ast.Ident); ok {
+					refs[id.Name] = struct{}{}
+				}
+			}
+		case *ast.SelectorExpr:
+			// 捕获属性访问: user.Name -> Name
+			refs[x.Sel.Name] = struct{}{}
+		case *ast.CompositeLit:
+			// 捕获结构体初始化: &User{} -> User
+			if ident, ok := x.Type.(*ast.Ident); ok {
+				refs[ident.Name] = struct{}{}
+			}
+		case *ast.Ident:
+			// 可以选择捕获所有 Ident，但噪音较大，上面针对性捕获更准
+			// 这里仅作备选策略
+		}
+		return true
+	})
+
+	var list []string
+	for k := range refs {
+		// 简单的去噪，忽略太短的变量名
+		if len(k) > 1 {
+			list = append(list, k)
+		}
+	}
+	return list
+} </Chunk>
 
 <Chunk id="/Users/yang/SysEvoV2/llm/tool.go:NewTool"> 
 func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[v] {
