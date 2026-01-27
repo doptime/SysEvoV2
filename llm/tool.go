@@ -91,6 +91,25 @@ func (t *Tool[v]) HandleCallback(Param interface{}, CallMemory map[string]any) (
 	return nil
 }
 
+// getFieldName 优先获取 json tag 中的名称，如果没有则使用字段名
+func getFieldName(field reflect.StructField) string {
+	jsonTag := field.Tag.Get("json")
+	if jsonTag == "" {
+		return field.Name
+	}
+	// json tag 格式可能是 "name,omitempty" 或 "-"
+	parts := strings.Split(jsonTag, ",")
+	name := strings.TrimSpace(parts[0])
+
+	if name == "-" {
+		return "-" // 明确表示忽略
+	}
+	if name == "" {
+		return field.Name // 只有 omitempty 没有名字的情况
+	}
+	return name
+}
+
 // NewTool creates a new tool, correctly generating schemas for nested structs and slices.
 func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[v] {
 	vType := reflect.TypeOf(new(v)).Elem()
@@ -112,6 +131,12 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 				continue
 			}
 
+			// 获取字段名称（优先使用 json tag）
+			paramName := getFieldName(field)
+			if paramName == "-" {
+				continue
+			}
+
 			// Generate the schema for each field's type using the recursive helper.
 			fieldOAI, fieldGoogle := buildSchemaForType(field.Type, visited)
 
@@ -119,8 +144,8 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 			fieldOAI["description"] = desc
 			fieldGoogle.Description = desc
 
-			oaiProperties[field.Name] = fieldOAI
-			googleProperties[field.Name] = fieldGoogle
+			oaiProperties[paramName] = fieldOAI
+			googleProperties[paramName] = fieldGoogle
 		}
 	} else {
 		log.Printf("Warning: Tool %s is created with a non-struct parameter type. No parameters will be defined.", name)
@@ -176,10 +201,6 @@ func buildSchemaForType(t reflect.Type, visited map[reflect.Type]bool) (map[stri
 	}
 
 	// Mark type as visited for the scope of this branch
-	// We copy the map for branches or simply rely on backtracking logic?
-	// For simple schema generation, a shared map passed down works if we only care about cycles.
-	// To be strictly correct for a tree where the same type appears in different branches (not cyclic),
-	// we should technically unmark it on return, but for cycle detection, keeping it marked is safer/simpler.
 	visited[t] = true
 	defer func() { delete(visited, t) }() // Backtracking: allow same type in sibling branches
 
@@ -199,14 +220,20 @@ func buildSchemaForType(t reflect.Type, visited map[reflect.Type]bool) (map[stri
 				continue
 			}
 
+			// 获取字段名称（优先使用 json tag）
+			paramName := getFieldName(field)
+			if paramName == "-" {
+				continue
+			}
+
 			// Recursive call for the nested struct's fields
 			subOAI, subGoogle := buildSchemaForType(field.Type, visited)
 
 			subOAI["description"] = desc
 			subGoogle.Description = desc
 
-			oaiProperties[field.Name] = subOAI
-			googleProperties[field.Name] = subGoogle
+			oaiProperties[paramName] = subOAI
+			googleProperties[paramName] = subGoogle
 		}
 		oaiSchema["properties"] = oaiProperties
 		googleSchema.Properties = googleProperties

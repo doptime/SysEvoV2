@@ -58,15 +58,14 @@ func NewMerger() *Merger {
 
 	// 创建 Merger Agent 并绑定已有的修改工具
 	// 注意：这里复用了 GoalRunner 中定义的 LLMToolApplyModification 逻辑
-	mergerAgent := agent.Create(t).
-		WithToolCallMutextRun().
+	mergerAgent := agent.Create(t).WithToolCallMutextRun().
 		UseTools(llm.NewTool("ApplyModification", "Apply code modification", func(mod *models.CodeModification) {
 			if err := editing.ApplyModification(mod); err != nil {
 				fmt.Printf("❌ Merger failed to apply: %v\n", err)
 			} else {
 				fmt.Printf("✅ Merger applied change to: %s\n", mod.TargetChunkID)
 			}
-		}))
+		})).WithModels(llm.ModelDefault)
 
 	return &Merger{
 		MergerAgent: mergerAgent,
@@ -85,8 +84,9 @@ func (m *Merger) RunManualMerge() error {
 	fmt.Println("🧠 Local LLM is parsing cloud response and applying edits...")
 
 	// 2. 调用本地 Agent 解析并触发 ToolCall
-	return m.MergerAgent.Call(map[string]any{
+	err := m.MergerAgent.Call(map[string]any{
 		"Context":       string(ctxBytes),
 		"CloudResponse": string(cloudBytes),
 	})
+	return err
 }

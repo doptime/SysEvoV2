@@ -1,7 +1,5 @@
 package models
 
-import "github.com/doptime/redisdb"
-
 // CodeModification 代表对一个代码块的原子修改意图
 // 这是 AI (Gemini) 输出的核心结构
 type CodeModification struct {
@@ -25,8 +23,7 @@ type CodeModification struct {
 	Reasoning string `json:"reasoning" description:"Why this change is necessary."`
 
 	// 系统字段
-	EvolutionID string                                `json:"-"`
-	SolutionKey *redisdb.HashKey[string, interface{}] `json:"-"` // 弱类型引用避免循环依赖
+	EvolutionID string `json:"-"`
 }
 
 // Solution 代表针对一个目标的一组修改方案
