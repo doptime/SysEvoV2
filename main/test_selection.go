@@ -7,7 +7,7 @@ import (
 	"sysevov2/workflow"
 )
 
-func Test_selection() {
+func Test_selection(Goal string) {
 	// 1. 并发索引当前项目
 	roots := []string{"/Users/yang/SysEvoV2"}
 	analysis.RunParallelIndexing(roots, 4)
@@ -21,7 +21,7 @@ func Test_selection() {
 	// 3. 发布自完善指令
 	// 例如：让系统优化 Selector 的解析逻辑，使其更健壮
 	err := runner.ExecuteGoal(
-		"检查脏扩散的功能代码是否符合预期。",
+		Goal,
 		llm.ModelDefault, // 本地模型筛选
 		nil,              // 云端模型修改
 	)

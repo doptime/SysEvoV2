@@ -1,7 +1,9 @@
-// Goal: 检查脏扩散的功能代码是否符合预期。
+<Goal>
+ 检查脏扩散的功能代码是否符合预期。
+</Goal>
 
 // Important File: /Users/yang/SysEvoV2/README.md
-// File: /Users/yang/SysEvoV2/README.md
+<File name="/Users/yang/SysEvoV2/README.md"> 
 这是一份基于之前所有讨论、代码实现及新需求（前后端一体化、多目录支持）重新整理的**SysEvoV2 项目技术规格说明书**。
 
 这份文档去除了所有文学性隐喻，采用了工程化、精确的描述，确保实现时无歧义。
@@ -55,8 +57,8 @@ SysEvoV2 是一个基于 **AST 感知** 和 **混合检索** 的自动化代码�
 
 
 4. **持久化 (Storage):**
-* **Chunk 数据:** 存入 Redis Hash `sysevo/chunks`。
-* **符号索引:** 存入 Redis Set `sysevo/idx/sym/{symbol}` (倒排索引: 符号 -> ChunkID列表)。
+* **Chunk 数据:** 存入 Redis Hash `sys/chunks`。
+* **符号索引:** 存入 Redis Set `sys/idx/sym/{symbol}` (倒排索引: 符号 -> ChunkID列表)。
 
 
 
@@ -198,9 +200,27 @@ type CodeModification struct {
 ---
 
 **指令:**
-本项目文档作为后续开发的**唯一真理来源 (Single Source of Truth)**。所有代码实现必须严格遵循上述数据结构与流程定义。
+本项目文档作为后续开发的**唯一真理来源 (Single Source of Truth)**。所有代码实现必须严格遵循上述数据结构与流程定义。 </File>
 
-// Chunk: /Users/yang/SysEvoV2/models/models.go:Chunk
+<Chunk id="/Users/yang/SysEvoV2/utils/textFromfile.go:TextFromFiles"> 
+func TextFromFiles(xmlTag string, filenames ...string) string {
+	var sb strings.Builder
+	for _, filename := range filenames {
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			fmt.Printf("Error reading file %s: %v\n", filename, err)
+			continue
+		}
+		text := string(content)
+		text = strings.TrimSpace(text)
+		if text != "" {
+			sb.WriteString(fmt.Sprintf("\n<%s name=\"%s\">\n%s\n</%s>\n", xmlTag, filename, text, xmlTag))
+		}
+	}
+	return sb.String()
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/models/models.go:Chunk"> 
 type Chunk struct {
 	// 唯一标识符: "filepath:start_byte-end_byte"
 	// msgpack: 数据库存储字段名
@@ -224,9 +244,9 @@ type Chunk struct {
 	// 文件元数据: 用于增量更新检查
 	FilePath  string `json:"file_path" msgpack:"file_path"`
 	UpdatedAt int64  `json:"updated_at" msgpack:"updated_at"` // Unix Timestamp
-}
+} </Chunk>
 
-// Chunk: /Users/yang/SysEvoV2/utils/cannicalHash.go:ID
+<Chunk id="/Users/yang/SysEvoV2/utils/cannicalHash.go:ID"> 
 func ID(v interface{}, Idlength ...int) string {
 	IdLen := append(Idlength, 6)[0]
 	var inputString string
@@ -246,71 +266,9 @@ func ID(v interface{}, Idlength ...int) string {
 	result := new(big.Int).SetUint64(uint64(hashValue)).Text(62)[:IdLen]
 
 	return result
-}
+} </Chunk>
 
-// Chunk: /Users/yang/SysEvoV2/context/selector.go:Selector
-type Selector struct {
-	// 使用模板定义的 Agent
-	SelectionAgent   *agent.Agent
-	FilesMustInclude []string
-}
-
-// Chunk: /Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient
-type DirtyIndexClient struct{}
-
-// Chunk: /Users/yang/SysEvoV2/context/selector.go:SelectionResult
-type SelectionResult struct {
-	SelectedIDs []string `description:"The list of Chunk IDs that are strictly necessary."`
-}
-
-// Chunk: /Users/yang/SysEvoV2/context/selector.go:NewSelector
-func NewSelector() *Selector {
-	// 按照你提供的用法：agent.Create + template
-	t := template.Must(template.New("ContextSelector").Parse(`
-You are a Code Context Selector. Analyze the Intent and the Candidates.
-Return the IDs of chunks that are necessary to fulfill the intent.
-
-<Important Files>
-{{.ImportantFiles}}
-</Important Files>
-
-<Intent>
-{{.Intent}}
-</Intent>
-
-<Candidates>
-{{.Candidates}}
-</Candidates>
-
-当你确定了需要选择的 Chunk ID 后，必须使用提供的工具函数提交结果。严禁仅以 Markdown 列表形式回复。
-`))
-
-	selAgent := agent.Create(t).WithToolCallMutextRun().WithModels(llm.ModelDefault)
-
-	return &Selector{
-		SelectionAgent: selAgent,
-	}
-}
-
-// Chunk: /Users/yang/SysEvoV2/utils/textFromfile.go:TextFromFiles
-func TextFromFiles(xmlTag string, filenames ...string) string {
-	var sb strings.Builder
-	for _, filename := range filenames {
-		content, err := os.ReadFile(filename)
-		if err != nil {
-			fmt.Printf("Error reading file %s: %v\n", filename, err)
-			continue
-		}
-		text := string(content)
-		text = strings.TrimSpace(text)
-		if text != "" {
-			sb.WriteString(fmt.Sprintf("\n<%s name=\"%s\">\n%s\n</%s>\n", xmlTag, filename, text, xmlTag))
-		}
-	}
-	return sb.String()
-}
-
-// Chunk: /Users/yang/SysEvoV2/context/selector.go:Selector.expandDependencies
+<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.expandDependencies"> 
 func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) map[string]struct{} {
 	resultSet := make(map[string]struct{})
 	for _, id := range seeds {
@@ -332,9 +290,9 @@ func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*mode
 		}
 	}
 	return resultSet
-}
+} </Chunk>
 
-// Chunk: /Users/yang/SysEvoV2/context/selector.go:Selector.SelectRelevantChunks
+<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.SelectRelevantChunks"> 
 func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*models.Chunk, error) {
 	fmt.Printf("🧠 Selecting Context for: %.50s...\n", intent)
 
@@ -377,43 +335,20 @@ func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*mod
 		}
 	}
 	return result, nil
-}
+} </Chunk>
 
-// Chunk: /Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.GetSymbolLinks
+<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.GetSymbolLinks"> 
 func (c *DirtyIndexClient) GetSymbolLinks(symbol string) ([]string, error) {
-	key := fmt.Sprintf("sysevo/idx/sym/%s", symbol)
+	key := fmt.Sprintf("sys/idx/sym/%s", symbol)
 
 	// SMembers 返回 []v, error
 	return redisdb.NewSetKey[string, string](redisdb.WithKey(key)).SMembers()
-}
+} </Chunk>
 
-// Chunk: /Users/yang/SysEvoV2/main/test_selection.go:Test_selection
-func Test_selection() {
-	// 1. 并发索引当前项目
-	roots := []string{"/Users/yang/SysEvoV2"}
-	analysis.RunParallelIndexing(roots, 4)
+<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient"> 
+type DirtyIndexClient struct{} </Chunk>
 
-	// 2. 初始化 Runner
-	runner := workflow.NewRunner()
-	runner.Selector.FilesMustInclude = []string{
-		"/Users/yang/SysEvoV2/README.md",
-	}
-
-	// 3. 发布自完善指令
-	// 例如：让系统优化 Selector 的解析逻辑，使其更健壮
-	err := runner.ExecuteGoal(
-		"检查脏扩散的功能代码是否符合预期。",
-		llm.ModelDefault, // 本地模型筛选
-		nil,              // 云端模型修改
-	)
-
-	if err != nil {
-		fmt.Println("Evolution turn failed:", err)
-	}
-
-}
-
-// Chunk: /Users/yang/SysEvoV2/llm/tool.go:NewTool
+<Chunk id="/Users/yang/SysEvoV2/llm/tool.go:NewTool"> 
 func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[v] {
 	vType := reflect.TypeOf(new(v)).Elem()
 	for vType.Kind() == reflect.Ptr {
@@ -475,87 +410,5 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 		Functions: fs,
 	}
 	return a
-}
-
-// Chunk: /Users/yang/SysEvoV2/agent/agent.go:Create
-func Create(_template *template.Template, tools ...llm.ToolInterface) (a *Agent) {
-	a = &Agent{
-		Models:         []*llm.Model{llm.ModelDefault},
-		toolsCallbacks: map[string]func(Param interface{}, CallMemory map[string]any) error{},
-		PromptTemplate: _template,
-	}
-	a.UseTools(tools...)
-	a.WithToolcallParser(nil)
-	return a
-}
-
-// Chunk: /Users/yang/SysEvoV2/workflow/goal_runner.go:NewRunner
-func NewRunner() *GoalRunner {
-	t := template.Must(template.New("GoalEditor").Parse(`
-You are a Senior Engineer. Achieve the Goal by modifying code chunks.
-<Context>
-{{.Context}}
-</Context>
-
-<Goal>
-{{.Goal}}
-</Goal>
-`))
-
-	// 创建 Editor Agent 并绑定 ApplyModification 工具
-	editor := agent.Create(t).WithToolCallMutextRun().UseTools(LLMToolApplyModification)
-
-	return &GoalRunner{
-		Selector:    context.NewSelector(),
-		EditorAgent: editor,
-	}
-}
-
-// Chunk: /Users/yang/SysEvoV2/analysis/indexer.go:RunParallelIndexing
-func RunParallelIndexing(roots []string, numThreads int) error {
-	if numThreads <= 0 {
-		numThreads = 1
-	}
-
-	var wg sync.WaitGroup
-	// 使用缓冲 channel 限制并发协程数
-	semaphore := make(chan struct{}, numThreads)
-
-	// 用于捕获并发过程中的错误
-	errChan := make(chan error, len(roots))
-
-	fmt.Printf("🚀 Starting parallel indexing with %d threads...\n", numThreads)
-
-	for _, root := range roots {
-		wg.Add(1)
-
-		go func(path string) {
-			defer wg.Done()
-
-			// 获取信号量（如果达到 numThreads 则阻塞）
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }() // 释放信号量
-
-			fmt.Printf("🧵 Thread processing: %s\n", path)
-
-			// 调用原有的 RunIncrementalIndexing 函数
-			if err := RunIncrementalIndexing(path); err != nil {
-				fmt.Printf("❌ Error indexing %s: %v\n", path, err)
-				errChan <- err
-			}
-		}(root)
-	}
-
-	// 等待所有任务完成
-	wg.Wait()
-	close(errChan)
-
-	// 检查是否有错误发生
-	if len(errChan) > 0 {
-		return fmt.Errorf("parallel indexing completed with %d errors", len(errChan))
-	}
-
-	fmt.Println("✅ Parallel indexing finished successfully.")
-	return nil
-}
+} </Chunk>
 

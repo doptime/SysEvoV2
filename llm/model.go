@@ -157,12 +157,12 @@ var (
 	Glm45Air      = NewModel("https://open.bigmodel.cn/api/paas/v4/", "ZHIPUAPIKEY", "GLM-4.5-Air")
 	Glm45AirLocal = NewModel("http://rtxserver.lan:12303/v1", "ApiKey", "GLM-4.5-Air").WithToolsInSystemPrompt()
 
-	Minmaxm4_1 = NewModel("http://rtxserver.lan:8000/v1", "", "mmm-4.1")
+	Minmaxm2_1 = NewModel("http://rtxserver.lan:8000/v1", "", "mmm-2.1")
 
 	Qwen3B32Thinking = NewModel("http://rtxserver.lan:1214/v1", "ApiKey", "qwen3b32").WithTemperature(0.6).WithTopP(0.95)
 	Oss120b          = NewModel("http://rtxserver.lan:12304/v1", "ApiKey", "gpt-oss-120b")
 	Oss20b           = NewModel("http://rtxserver.lan:12302/v1", "ApiKey", "gpt-oss-20b").WithSysPrompt("Reasoning: high")
 
 	//ModelDefault        = ModelQwen32BCoderLocal
-	ModelDefault = Minmaxm4_1
+	ModelDefault = Minmaxm2_1
 )

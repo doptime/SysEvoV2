@@ -48,7 +48,7 @@ You are a Senior Engineer. Achieve the Goal by modifying code chunks.
 
 func (r *GoalRunner) ExportContextToFile(goal string, contextString string) {
 	var contextStr string
-	contextStr += fmt.Sprintf("// Goal: %s\n\n", goal)
+	contextStr += fmt.Sprintf("<Goal>\n %s\n</Goal>\n\n", goal)
 	for _, file := range r.Selector.FilesMustInclude {
 		contextStr += fmt.Sprintf("// Important File: %s\n", file)
 
@@ -66,11 +66,11 @@ func (r *GoalRunner) ExecuteGoal(goal string, contextSelectModel, CodeImproveMod
 
 	var contextStr string
 	for _, file := range r.Selector.FilesMustInclude {
-		contextStr += fmt.Sprintf("// File: %s\n%s\n\n", file, utils.TextFromFile(file))
+		contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", file, utils.TextFromFile(file))
 	}
 
 	for _, c := range chunks {
-		contextStr += fmt.Sprintf("// Chunk: %s\n%s\n\n", c.ID, c.Body)
+		contextStr += fmt.Sprintf("<Chunk id=\"%s\"> \n%s </Chunk>\n\n", c.ID, c.Body)
 	}
 
 	r.ExportContextToFile(goal, contextStr)

@@ -1,14 +1,7 @@
 package main
 
-import (
-	"sysevov2/llm"
-	"sysevov2/workflow"
-)
-
 func main() {
 
-	//
-	workflow.NewMerger().RunManualMerge("GoalWithContext.txt", llm.ModelDefault)
-	return
-	Test_selection()
+	Test_selection("检查脏扩散的功能代码是否符合预期。")
+	//workflow.NewMerger().RunManualMerge("GoalWithContext.txt", llm.ModelDefault)
 }
