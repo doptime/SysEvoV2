@@ -77,7 +77,7 @@ func NewMerger() *Merger {
 // cloudResponsePath: 从剪切板复制，请确保内容已经位于接切板
 func (m *Merger) RunManualMerge() error {
 	// 1. 读取上下文和云端回复
-	ctxBytes := utils.TextFromFile(m.GetContextFile(""))
+	ctxBytes := utils.ReadFile(m.GetContextFile(""))
 
 	cloudBytes := utils.TextFromClipboard()
 

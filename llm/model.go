@@ -128,7 +128,7 @@ func (m *Model) WithSysPrompt(message string) *Model {
 }
 
 var (
-	DeepSeekV3 = NewModel("https://api.deepseek.com/", utils.TextFromFile("/Users/yang/eloevo/.vscode/DSAPIKEY.txt"), "deepseek-chat").WithTopP(0.6).WithToolsInSystemPrompt()
+	DeepSeekV3 = NewModel("https://api.deepseek.com/", utils.ReadFile("/Users/yang/eloevo/.vscode/DSAPIKEY.txt"), "deepseek-chat").WithTopP(0.6).WithToolsInSystemPrompt()
 	//https://tbnx.plus7.plus/token
 	DeepSeekV3TB = NewModel("https://tbnx.plus7.plus/v1", os.Getenv("DSTB"), "deepseek-chat").WithTopP(0.6)
 	GeminiTB     = NewModel("https://tao.plus7.plus/v1", os.Getenv("geminitb"), "gemini-2.0-flash-exp").WithTopP(0.8).WithToolsInUserPrompt()

@@ -92,7 +92,7 @@ func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*mod
 	// 4. 调用 LLM
 	err = keyedAgent.Call(map[string]any{
 		agent.UseModel:   model,
-		"ImportantFiles": utils.TextFromFiles("ImportantFile", s.FilesMustInclude...),
+		"ImportantFiles": utils.WrapFilesInXML("ImportantFile", s.FilesMustInclude...),
 		"Intent":         intent,
 		"Candidates":     sb.String(),
 	})

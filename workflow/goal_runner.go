@@ -66,7 +66,7 @@ func (r *GoalRunner) ExecuteGoal(goal string, contextSelectModel, CodeImproveMod
 
 	var contextStr string
 	for _, file := range r.Selector.FilesMustInclude {
-		contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", file, utils.TextFromFile(file))
+		contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", file, utils.ReadFile(file))
 	}
 
 	for _, c := range chunks {

@@ -58,7 +58,7 @@ func LineNumberedPathContent(path string, evoRealm *config.EvoRealm, lineNumberS
 	var allFileContent strings.Builder
 	for _, file := range allFiles {
 		relativePath := evoRealm.RelativePath(file)
-		content := TextFromFile(file)
+		content := ReadFile(file)
 		if lineNumberStart <= 0 {
 			allFileContent.WriteString("\n\n<file path=\"" + relativePath + "\">\n" + content + "\n</file>\n")
 		} else {
