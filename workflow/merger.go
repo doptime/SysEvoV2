@@ -12,11 +12,9 @@ import (
 )
 
 // Merger 负责将非结构化的云端建议合并到本地代码库
-
-// Merger 负责将非结构化的云端建议合并到本地代码库
 type Merger struct {
-	MergerAgent      *agent.Agent
-	LocalContextFile string
+	MergerAgent                      *agent.Agent
+	LocalFileToSaveSelectedContextTo string
 }
 
 func (m *Merger) WithLocalModel(model *llm.Model) *Merger {
@@ -25,12 +23,12 @@ func (m *Merger) WithLocalModel(model *llm.Model) *Merger {
 }
 
 func (m *Merger) WithContextFile(filePath string) *Merger {
-	m.LocalContextFile = filePath
+	m.LocalFileToSaveSelectedContextTo = filePath
 	return m
 }
 func (m *Merger) GetContextFile(filePath string) string {
-	if m.LocalContextFile != "" {
-		return m.LocalContextFile
+	if m.LocalFileToSaveSelectedContextTo != "" {
+		return m.LocalFileToSaveSelectedContextTo
 	}
 	return "GoalWithContext.txt"
 }

@@ -4,7 +4,6 @@ package models
 // 这是 AI (Gemini) 输出的核心结构
 type CodeModification struct {
 	// 上下文关联
-	GoalID   string `json:"goal_id" description:"The ID of the goal."`
 	FilePath string `json:"file_path" description:"Required. The target file path."`
 
 	// 核心定位: ChunkID
@@ -21,15 +20,10 @@ type CodeModification struct {
 
 	// 思维链 (CoT)
 	Reasoning string `json:"reasoning" description:"Why this change is necessary."`
-
-	// 系统字段
-	EvolutionID string `json:"-"`
 }
 
 // Solution 代表针对一个目标的一组修改方案
 type Solution struct {
-	GoalID        string              `json:"goal_id"`
 	Modifications []*CodeModification `json:"modifications"`
-	EvolutionID   string              `json:"evolution_id"`
 	Status        string              `json:"status"` // "PENDING", "APPLIED", "FAILED"
 }

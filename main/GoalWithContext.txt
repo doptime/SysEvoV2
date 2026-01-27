@@ -1,5 +1,5 @@
 <Goal>
- 检查脏扩散的功能代码是否符合预期。重点检查索引的检查逻辑是否正确建立。现有的索引表并不包括反向符号索引。这会不会引发问题？如果会，如何改进？现在脏扩散的Level2 ID 表都是空的。并没有实现Level2的脏扩散。这部分合理的实现应该是什么样的？
+ 讨论把 部分 本地文件以全量源码的方式追加到 Context 中，以提升上下文的完整性和准确性。优化 Selector 的文件选择逻辑。 这个想法是否必要
 </Goal>
 
 // Important File: /Users/yang/SysEvoV2/README.md
@@ -202,49 +202,102 @@ type CodeModification struct {
 **指令:**
 本项目文档作为后续开发的**唯一真理来源 (Single Source of Truth)**。所有代码实现必须严格遵循上述数据结构与流程定义。 </File>
 
-<Chunk id="/Users/yang/SysEvoV2/llm/tool.go:Name"> 
-func (t *Tool[v]) Name() string {
-	return t.Tool.Function.Name
-} </Chunk>
+<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.SelectRelevantChunks"> 
+func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*models.Chunk, error) {
+	fmt.Printf("🧠 Selecting Context for: %.50s...\n", intent)
 
-<Chunk id="/Users/yang/SysEvoV2/utils/cannicalHash.go:ID"> 
-func ID(v interface{}, Idlength ...int) string {
-	IdLen := append(Idlength, 6)[0]
-	var inputString string
-	switch v := v.(type) {
-	case string:
-		inputString = v
-	case []byte:
-		inputString = string(v)
-	default:
-		inputString = fmt.Sprintf("%v", time.Now().UnixNano())
+	// 1. 加载所有 Chunk (Level 0)
+	allChunksMap, err := storage.ChunkStorage.HGetAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load chunks from storage: %w", err)
+	}
+	allChunks := lo.Values(allChunksMap)
+
+	// 2. 构建候选列表 (Skeleton View)
+	// 注意：如果项目极大，这里可能需要根据 Embeddings 先做一次粗筛，目前全量放入上下文
+	var sb strings.Builder
+	for _, c := range allChunks {
+		skel := c.Skeleton
+		// 截断过长的骨架以节省 Token
+		if len(skel) > 400 {
+			skel = skel[:400] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("ID: %s\n%s\n---\n", c.ID, skel))
 	}
 
-	// 使用 xxhash 计算哈希
-	hashValue := xxhash.Sum64String(inputString)
+	// 3. 配置工具与回调 (Level 1 Selection)
+	// 使用闭包捕获 Agent 选中的 ID
+	var finalIDs []string
 
-	// 生成大整数并转为 base62 编码的字符串
-	result := new(big.Int).SetUint64(uint64(hashValue)).Text(62)[:IdLen]
+	// 注意：这里假设 UseTools 返回一个新的 Agent 实例或不仅限于单次调用
+	// 为了线程安全，建议每次请求克隆 Agent，或者确保 UseTools 是请求隔离的
+	// 这里沿用你的现有模式
+	keyedAgent := s.SelectionAgent.UseTools(llm.NewTool("PickChunks", "Select necessary code chunks (IDs)", func(res *SelectionResult) {
+		finalIDs = res.SelectedIDs
+	}))
 
-	return result
+	// 4. 调用 LLM
+	err = keyedAgent.Call(map[string]any{
+		agent.UseModel:   model,
+		"ImportantFiles": utils.WrapFilesInXML("ImportantFile", s.FilesMustInclude...),
+		"Intent":         intent,
+		"Candidates":     sb.String(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("agent call failed: %w", err)
+	}
+
+	// 5. 脏扩散 (Level 2 Dependency Expansion)
+	// 基于 Level 1 选中的 Chunk，查找它们引用的符号是由谁定义的
+	finalIDSet := s.expandDependencies(finalIDs, allChunksMap)
+
+	// 6. 组装最终结果
+	result := make([]*models.Chunk, 0, len(finalIDSet))
+	for id := range finalIDSet {
+		if chunk, ok := allChunksMap[id]; ok {
+			result = append(result, chunk)
+		}
+	}
+
+	fmt.Printf("✅ Selected %d chunks (Seeds: %d, Expanded: %d)\n", len(result), len(finalIDs), len(result)-len(finalIDs))
+	return result, nil
 } </Chunk>
 
-<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.AddSymbolLink"> 
-func (c *DirtyIndexClient) AddSymbolLink(symbol string, chunkID string) error {
-	// Key 分隔符使用 "/"
-	key := fmt.Sprintf("sys/idx/sym/%s", symbol)
+<Chunk id="/Users/yang/SysEvoV2/context/selector.go:NewSelector"> 
+func NewSelector() *Selector {
+	// 初始化 Agent 模板
+	t := template.Must(template.New("ContextSelector").Parse(`
+You are a Code Context Selector. Analyze the Intent and the Candidates.
+Return the IDs of chunks that are strictly necessary to fulfill the intent.
+Do not select chunks that are irrelevant.
 
-	// NewSetKey 必须指定两个泛型 [k, v]，这里都是 string
-	// SAdd 返回 error
-	return redisdb.NewSetKey[string, string](redisdb.WithKey(key)).SAdd(chunkID)
+<Important Files>
+{{.ImportantFiles}}
+</Important Files>
+
+<Intent>
+{{.Intent}}
+</Intent>
+
+<Candidates>
+{{.Candidates}}
+</Candidates>
+
+When you have identified the necessary Chunk IDs, you must use the provided tool function to submit the result.
+Do not reply with just a Markdown list.
+`))
+
+	// 创建基础 Agent
+	selAgent := agent.Create(t).WithToolCallMutextRun().WithModels(llm.ModelDefault)
+
+	return &Selector{
+		SelectionAgent: selAgent,
+	}
 } </Chunk>
 
-<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.GetSymbolLinks"> 
-func (c *DirtyIndexClient) GetSymbolLinks(symbol string) ([]string, error) {
-	key := fmt.Sprintf("sys/idx/sym/%s", symbol)
-
-	// SMembers 返回 []v, error
-	return redisdb.NewSetKey[string, string](redisdb.WithKey(key)).SMembers()
+<Chunk id="/Users/yang/SysEvoV2/context/selector.go:SelectionResult"> 
+type SelectionResult struct {
+	SelectedIDs []string `description:"The list of Chunk IDs that are strictly necessary."`
 } </Chunk>
 
 <Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.GetUnionLinks"> 
@@ -280,129 +333,8 @@ func (c *DirtyIndexClient) GetUnionLinks(symbols []string) ([]string, error) {
 	return cmd.Result()
 } </Chunk>
 
-<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.expandDependencies"> 
-func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) map[string]struct{} {
-	resultSet := make(map[string]struct{})
-
-	// 1. 初始化结果集，并收集所有需要查询的符号
-	uniqueSymbols := make(map[string]struct{}) // 用于符号去重
-
-	for _, id := range seeds {
-		resultSet[id] = struct{}{} // 将种子自身加入结果
-
-		chunk, ok := allChunks[id]
-		if !ok {
-			continue
-		}
-
-		// 收集该 Chunk 引用的所有符号
-		for _, refSymbol := range chunk.SymbolsReferenced {
-			// 简单的过滤：忽略过短的符号或特定内置符号（可选）
-			if len(refSymbol) > 1 {
-				uniqueSymbols[refSymbol] = struct{}{}
-			}
-		}
-	}
-
-	// 将去重后的符号转为切片
-	symbolList := make([]string, 0, len(uniqueSymbols))
-	for sym := range uniqueSymbols {
-		symbolList = append(symbolList, sym)
-	}
-
-	// 2. 【核心优化】使用 SUNION 一次性获取所有依赖的 ChunkID
-	if len(symbolList) > 0 {
-		targetIDs, err := storage.Indexer.GetUnionLinks(symbolList)
-		if err != nil {
-			fmt.Printf("Error fetching dependencies: %v\n", err)
-			// 出错时降级：不扩散，或者记录日志
-		} else {
-			// 3. 将存在的 Chunk 加入结果集
-			for _, tid := range targetIDs {
-				// 必须检查 tid 是否在当前加载的 allChunks 中（防止引用了已被删除的文件）
-				if _, exists := allChunks[tid]; exists {
-					resultSet[tid] = struct{}{}
-				}
-			}
-		}
-	}
-
-	return resultSet
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.SelectRelevantChunks"> 
-func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*models.Chunk, error) {
-	fmt.Printf("🧠 Selecting Context for: %.50s...\n", intent)
-
-	allChunksMap, _ := storage.ChunkStorage.HGetAll()
-	allChunks := lo.Values(allChunksMap)
-
-	var sb strings.Builder
-	for _, c := range allChunks {
-		skel := c.Skeleton
-		if len(skel) > 400 {
-			skel = skel[:400] + "..."
-		}
-		sb.WriteString(fmt.Sprintf("ID: %s\n%s\n---\n", c.ID, skel))
-	}
-
-	// 核心：使用闭包捕获选中的 ID
-	var finalIDs []string
-	s.SelectionAgent = s.SelectionAgent.UseTools(llm.NewTool("PickChunks", "Select necessary code chunks (IDs)", func(res *SelectionResult) {
-		finalIDs = res.SelectedIDs
-	}))
-
-	// 调用 Agent
-	err := s.SelectionAgent.Call(map[string]any{
-		agent.UseModel:   model,
-		"ImportantFiles": utils.TextFromFiles("ImportantFile", s.FilesMustInclude...),
-		"Intent":         intent,
-		"Candidates":     sb.String(),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// 脏扩散 (Level 2)
-	finalIDSet := s.expandDependencies(finalIDs, allChunksMap)
-
-	result := make([]*models.Chunk, 0)
-	for id := range finalIDSet {
-		if chunk, ok := allChunksMap[id]; ok {
-			result = append(result, chunk)
-		}
-	}
-	return result, nil
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/models/models.go:Chunk"> 
-type Chunk struct {
-	// 唯一标识符: "filepath:start_byte-end_byte"
-	// msgpack: 数据库存储字段名
-	ID string `json:"id" msgpack:"id"`
-
-	// 类型: "Function", "Struct", "Interface"
-	Type string `json:"type" msgpack:"type"`
-
-	// 骨架: 仅签名 + 注释 (用于 Level 1 意图筛选)
-	Skeleton string `json:"skeleton" msgpack:"skeleton"`
-
-	// 全文: 完整的代码实现 (用于 Level 3 生成)
-	Body string `json:"body" msgpack:"body"`
-
-	// 符号表: 定义了什么符号
-	SymbolsDefined []string `json:"symbols_defined" msgpack:"symbols_defined"`
-
-	// 引用表: 调用了什么符号 (用于构建脏链接图)
-	SymbolsReferenced []string `json:"symbols_referenced" msgpack:"symbols_referenced"`
-
-	// 文件元数据: 用于增量更新检查
-	FilePath  string `json:"file_path" msgpack:"file_path"`
-	UpdatedAt int64  `json:"updated_at" msgpack:"updated_at"` // Unix Timestamp
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/utils/textFromfile.go:TextFromFiles"> 
-func TextFromFiles(xmlTag string, filenames ...string) string {
+<Chunk id="/Users/yang/SysEvoV2/utils/textFromfile.go:WrapFilesInXML"> 
+func WrapFilesInXML(xmlTag string, filenames ...string) string {
 	var sb strings.Builder
 	for _, filename := range filenames {
 		content, err := os.ReadFile(filename)
@@ -419,50 +351,45 @@ func TextFromFiles(xmlTag string, filenames ...string) string {
 	return sb.String()
 } </Chunk>
 
-<Chunk id="/Users/yang/SysEvoV2/analysis/indexer.go:extractGoSymbols"> 
-func extractGoSymbols(node ast.Node) []string {
-	refs := make(map[string]struct{})
-	if node == nil {
-		return nil
+<Chunk id="/Users/yang/SysEvoV2/agent/agent.go:Create"> 
+func Create(_template *template.Template, tools ...llm.ToolInterface) (a *Agent) {
+	a = &Agent{
+		Models:         []*llm.Model{llm.ModelDefault},
+		toolsCallbacks: map[string]func(Param interface{}, CallMemory map[string]any) error{},
+		PromptTemplate: _template,
+	}
+	a.UseTools(tools...)
+	a.WithToolcallParser(nil)
+	return a
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/utils/cannicalHash.go:ID"> 
+func ID(v interface{}, Idlength ...int) string {
+	IdLen := append(Idlength, 6)[0]
+	var inputString string
+	switch v := v.(type) {
+	case string:
+		inputString = v
+	case []byte:
+		inputString = string(v)
+	default:
+		inputString = fmt.Sprintf("%v", time.Now().UnixNano())
 	}
 
-	// 深度优先遍历 AST
-	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.CallExpr:
-			// 捕获函数调用: foo() -> foo
-			if ident, ok := x.Fun.(*ast.Ident); ok {
-				refs[ident.Name] = struct{}{}
-			} else if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-				// 捕获方法调用: pkg.Foo() -> Foo, pkg
-				refs[sel.Sel.Name] = struct{}{}
-				if id, ok := sel.X.(*ast.Ident); ok {
-					refs[id.Name] = struct{}{}
-				}
-			}
-		case *ast.SelectorExpr:
-			// 捕获属性访问: user.Name -> Name
-			refs[x.Sel.Name] = struct{}{}
-		case *ast.CompositeLit:
-			// 捕获结构体初始化: &User{} -> User
-			if ident, ok := x.Type.(*ast.Ident); ok {
-				refs[ident.Name] = struct{}{}
-			}
-		case *ast.Ident:
-			// 可以选择捕获所有 Ident，但噪音较大，上面针对性捕获更准
-			// 这里仅作备选策略
-		}
-		return true
-	})
+	// 使用 xxhash 计算哈希
+	hashValue := xxhash.Sum64String(inputString)
 
-	var list []string
-	for k := range refs {
-		// 简单的去噪，忽略太短的变量名
-		if len(k) > 1 {
-			list = append(list, k)
-		}
-	}
-	return list
+	// 生成大整数并转为 base62 编码的字符串
+	result := new(big.Int).SetUint64(uint64(hashValue)).Text(62)[:IdLen]
+
+	return result
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector"> 
+type Selector struct {
+	// 使用模板定义的 Agent
+	SelectionAgent   *agent.Agent
+	FilesMustInclude []string
 } </Chunk>
 
 <Chunk id="/Users/yang/SysEvoV2/llm/tool.go:NewTool"> 
@@ -486,6 +413,12 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 				continue
 			}
 
+			// 获取字段名称（优先使用 json tag）
+			paramName := getFieldName(field)
+			if paramName == "-" {
+				continue
+			}
+
 			// Generate the schema for each field's type using the recursive helper.
 			fieldOAI, fieldGoogle := buildSchemaForType(field.Type, visited)
 
@@ -493,8 +426,8 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 			fieldOAI["description"] = desc
 			fieldGoogle.Description = desc
 
-			oaiProperties[field.Name] = fieldOAI
-			googleProperties[field.Name] = fieldGoogle
+			oaiProperties[paramName] = fieldOAI
+			googleProperties[paramName] = fieldGoogle
 		}
 	} else {
 		log.Printf("Warning: Tool %s is created with a non-struct parameter type. No parameters will be defined.", name)
@@ -527,5 +460,164 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 		Functions: fs,
 	}
 	return a
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/models/models.go:Chunk"> 
+type Chunk struct {
+	// 唯一标识符: "filepath:start_byte-end_byte"
+	// msgpack: 数据库存储字段名
+	ID string `json:"id" msgpack:"id"`
+
+	// 类型: "Function", "Struct", "Interface"
+	Type string `json:"type" msgpack:"type"`
+
+	// 骨架: 仅签名 + 注释 (用于 Level 1 意图筛选)
+	Skeleton string `json:"skeleton" msgpack:"skeleton"`
+
+	// 全文: 完整的代码实现 (用于 Level 3 生成)
+	Body string `json:"body" msgpack:"body"`
+
+	// 符号表: 定义了什么符号
+	SymbolsDefined []string `json:"symbols_defined" msgpack:"symbols_defined"`
+
+	// 引用表: 调用了什么符号 (用于构建脏链接图)
+	SymbolsReferenced []string `json:"symbols_referenced" msgpack:"symbols_referenced"`
+
+	// 文件元数据: 用于增量更新检查
+	FilePath  string `json:"file_path" msgpack:"file_path"`
+	UpdatedAt int64  `json:"updated_at" msgpack:"updated_at"` // Unix Timestamp
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/workflow/merger.go:Merger"> 
+type Merger struct {
+	MergerAgent                      *agent.Agent
+	LocalFileToSaveSelectedContextTo string
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.expandDependencies"> 
+func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) map[string]struct{} {
+	resultSet := make(map[string]struct{})
+
+	// 1. 初始化结果集，并收集所有种子 Chunk 引用的符号
+	uniqueSymbols := make(map[string]struct{})
+
+	for _, id := range seeds {
+		// 种子本身必须包含在结果中
+		resultSet[id] = struct{}{}
+
+		chunk, ok := allChunks[id]
+		if !ok {
+			continue
+		}
+
+		// 收集该 Chunk 引用的符号 (Level 1 -> 引用 -> Level 2 定义)
+		for _, refSymbol := range chunk.SymbolsReferenced {
+			// 过滤掉单字符或常见干扰项
+			if len(refSymbol) > 1 {
+				uniqueSymbols[refSymbol] = struct{}{}
+			}
+		}
+	}
+
+	// 转换 Set 为 Slice
+	symbolList := make([]string, 0, len(uniqueSymbols))
+	for sym := range uniqueSymbols {
+		symbolList = append(symbolList, sym)
+	}
+
+	// 2. 【核心优化】批量查询反向索引
+	// 调用 index_client.go 中的 GetUnionLinks (使用 Redis SUNION)
+	if len(symbolList) > 0 {
+		targetIDs, err := storage.Indexer.GetUnionLinks(symbolList)
+		if err != nil {
+			fmt.Printf("⚠️ Error fetching dependencies: %v\n", err)
+			// 出错时降级：仅返回种子，不中断流程
+		} else {
+			// 3. 将查找到的定义者加入结果集
+			for _, tid := range targetIDs {
+				// 必须检查 tid 是否在当前加载的 allChunks 中
+				// (防止引用了已被删除的文件或未加载的模块)
+				if _, exists := allChunks[tid]; exists {
+					resultSet[tid] = struct{}{}
+				}
+			}
+		}
+	}
+
+	return resultSet
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/workflow/goal_runner.go:GoalRunner.ExecuteGoal"> 
+func (r *GoalRunner) ExecuteGoal(goal string, contextSelectModel, CodeImproveModel *llm.Model) error {
+	// 1. 获取上下文
+	chunks, err := r.Selector.SelectRelevantChunks(goal, contextSelectModel)
+	if err != nil {
+		return err
+	}
+
+	var contextStr string
+	for _, file := range r.Selector.FilesMustInclude {
+		contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", file, utils.ReadFile(file))
+	}
+
+	for _, c := range chunks {
+		contextStr += fmt.Sprintf("<Chunk id=\"%s\"> \n%s </Chunk>\n\n", c.ID, c.Body)
+	}
+
+	r.ExportContextToFile(goal, contextStr)
+
+	if CodeImproveModel == nil {
+		return nil
+	}
+	// 2. 调用生成
+	return r.EditorAgent.Call(map[string]any{
+		agent.UseModel: CodeImproveModel,
+		"Goal":         goal,
+		"Context":      contextStr,
+	})
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/analysis/indexer.go:generateGoSkeleton"> 
+func generateGoSkeleton(fn *ast.FuncDecl, fset *token.FileSet) string {
+	// 浅拷贝 AST 节点，避免修改原结构影响后续处理
+	tempFn := *fn
+	// 替换函数体为一个空的 BlockStmt
+	tempFn.Body = &ast.BlockStmt{
+		List: []ast.Stmt{
+			&ast.ExprStmt{X: &ast.Ident{Name: "..."}}, // 占位符
+		},
+		Lbrace: fn.Body.Lbrace,
+		Rbrace: fn.Body.Rbrace,
+	}
+
+	var buf bytes.Buffer
+	printer.Fprint(&buf, fset, &tempFn)
+	return buf.String()
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/utils/textFromfile.go:ReadFile"> 
+func ReadFile(filename string) string {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		fmt.Printf("Error reading file %s: %v\n", filename, err)
+		return ""
+	}
+	return strings.TrimSpace(string(content))
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/agent/agent.go:Agent"> 
+type Agent struct {
+	Models                      []*llm.Model
+	PromptTemplate              *template.Template
+	Tools                       []openai.Tool
+	ToolInSystemPrompt          bool
+	ToolInUserPrompt            bool
+	toolsCallbacks              map[string]func(Param interface{}, CallMemory map[string]any) error
+	functioncallParsers         []func(resp openai.ChatCompletionResponse) (toolCalls []*FunctionCall)
+	CallBack                    func(ctx context.Context, inputs string) error
+	CheckToolCallsBeforeCalling func(toolCalls []*FunctionCall) error
+	// CallBackBeforeToolCall func(toolCall *FunctionCall, CallMemory map[string]any) error
+
+	ToolCallRunningMutext interface{}
 } </Chunk>
 
