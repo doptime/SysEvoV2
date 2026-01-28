@@ -2,8 +2,8 @@
 
 **版本:** v2.2 (Diamond Selection Spec)
 **日期:** 2026-01-28
-**状态:** 开发中 (In Development)
-**硬件基准:** 8x NVIDIA RTX 3090 (192GB VRAM), Local Context Limit: 65k Tokens
+**状态:** 核心功能就绪 (Core Features Ready)
+**硬件基准:** 8x NVIDIA RTX 3090 (192GB VRAM), Local Context Limit: 128k Tokens
 **目标架构:** 前后端一体化 Monorepo (Golang + TypeScript)
 
 ---
@@ -68,6 +68,7 @@ SysEvoV2 是一个基于 **AST 感知** 和 **混合检索** 的自动化代码�
 3. **Level 2 (依赖扩散):**
 * 遍历 Level 1 选中 Chunk 的 `SymbolsReferenced`。
 * 查询 `sys/idx/sym/*` 索引，强制拉取定义了这些符号的 Chunk (1-Hop 依赖)。
+* *增强:* 调用 `ensureStructDefinitions` 防止方法被选中但宿主结构体丢失。
 
 
 4. **Level 2.5 (负选择/审查):** **[NEW]**
@@ -103,6 +104,7 @@ SysEvoV2 是一个基于 **AST 感知** 和 **混合检索** 的自动化代码�
 * 模型: Google Gemini 3.0。
 * 协议: 输出 `CodeModification` 结构。
 * **约束:** 禁止使用行号。必须使用 `TargetChunkID` 定位，并提供完整的 `NewContent` (AST 节点全量替换)。
+* **安全:** Prompt 包含防御性指令，禁止修改标记为 `[READ-ONLY REFERENCE]` 的骨架代码。
 
 
 * **应用策略 (AST Patching):**
@@ -146,66 +148,3 @@ type Chunk struct {
     SymbolsReferenced []string `json:"symbols_referenced"` // 调用的符号
     FilePath          string   `json:"file_path"`
 }
-
-```
-
-**CodeModification (修改指令)**
-
-```go
-type CodeModification struct {
-    FilePath      string `json:"file_path"`
-    TargetChunkID string `json:"target_chunk_id"` // 锚点 ID
-    ActionType    string `json:"action_type"`     // MODIFY | DELETE | CREATE_FILE
-    NewContent    string `json:"new_content"`     // 完整的新 AST 节点代码
-    Reasoning     string `json:"reasoning"`
-}
-
-```
-
----
-
-## 4. 实施路线图 (Implementation Roadmap)
-
-### Phase 1: 基础架构构建 (Infrastructure)
-
-* [x] **存储层:** 实现 Redis Key 定义 (`storage/keys.go`, `storage/index_client.go`)。
-* [x] **解析层 (Go):** 实现 `go/ast` 解析器 (`analysis/parser_go.go`)。
-* [x] **解析层 (TS):** 实现 Node.js Sidecar 解析器 (`analysis/parser_ts_sidecar.go`)。
-* [ ] **索引器:** 更新 `RunIncrementalIndexing` 以支持传入**目录切片 (`[]string`)**，并串联解析与存储逻辑。
-
-### Phase 2: 上下文选择 (Context Selection)
-
-* [x] **L1 Selector:** 基于骨架的意图筛选 (`context/selector.go`)。
-* [ ] **L2.5 Pruner:** 实现 `NegativeSelectionAgent`，对扩散后的依赖进行“保留 Body vs 仅留 Skeleton”的二分类审查。
-* [ ] **Context Mixer:** 更新 Selector 输出逻辑，支持混合 Body 和 Skeleton。
-
-### Phase 3: 生成与执行 (Execution)
-
-* [ ] **编辑器:** 实现 `editing/ast_editor.go`，完成基于 AST 的精准替换逻辑。
-* [ ] **工作流:** 实现 `workflow/goal_runner.go`，串联 Context -> Cloud Agent -> Editor 闭环。
-
----
-
-## 5. 关键风险与规避 (Risk Management)
-
-1. **风险:** 目录遍历遗漏。
-* *规避:* `RunIncrementalIndexing` 入口参数强制改为 `rootDirs []string`，并在配置中明确列出所有源码根目录（如 `backend/`, `frontend/src/`）。
-
-
-2. **风险:** 隐式依赖丢失（如 Middleware）。
-* *规避:* 符号索引采用“字符串强匹配”策略（Dirty Index），宁滥勿缺。
-
-
-3. **风险:** 代码替换导致 Import 丢失。
-* *规避:* 编辑器在写入文件后，**强制执行** `goimports` (Go) 或自动导入修复逻辑。
-
-
-4. **风险:** TypeScript 解析环境依赖。
-* *规避:* 采用 Sidecar 模式，将 TS 解析器作为独立子进程运行，不依赖宿主项目的 `node_modules`。
-
-
-
----
-
-**指令:**
-本项目文档作为后续开发的**唯一真理来源 (Single Source of Truth)**。所有代码实现必须严格遵循上述数据结构与流程定义。
