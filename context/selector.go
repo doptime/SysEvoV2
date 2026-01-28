@@ -14,17 +14,17 @@ import (
 	"github.com/samber/lo"
 )
 
-// SelectedContext 封装最终的选择结果：包含零散的 Chunks 和被升级为全量的文件
+// SelectedContext 封装最终的选择结果
 type SelectedContext struct {
-	Chunks    []*models.Chunk   // 零散的代码块
+	Chunks    []*models.Chunk   // 包含 Core(Body), Type(Body), KeptDep(Body), PrunedDep(Skeleton)
 	FullFiles map[string]string // 路径 -> 文件内容 (被“升格”的文件)
 }
 
 type Selector struct {
-	SelectionAgent   *agent.Agent
-	FilesMustInclude []string
-	// 升格阈值：如果一个文件中超过 50% 的 Chunk 被选中，读取全量文件
-	PromotionThreshold float64
+	SelectionAgent         *agent.Agent
+	NegativeSelectionAgent *agent.Agent // [NEW] Level 2.5 负选择 Agent
+	FilesMustInclude       []string
+	PromotionThreshold     float64
 }
 
 type SelectionResult struct {
@@ -32,7 +32,8 @@ type SelectionResult struct {
 }
 
 func NewSelector() *Selector {
-	t := template.Must(template.New("ContextSelector").Parse(`
+	// Level 1: 核心筛选 Agent
+	t1 := template.Must(template.New("ContextSelector").Parse(`
 You are a Code Context Selector. Analyze the Intent and the Candidates.
 Return the IDs of chunks that are strictly necessary to fulfill the intent.
 Do not select chunks that are irrelevant.
@@ -53,26 +54,52 @@ When you have identified the necessary Chunk IDs, you must use the provided tool
 Do not reply with just a Markdown list.
 `))
 
-	selAgent := agent.Create(t).WithToolCallMutextRun().WithModels(llm.ModelDefault)
+	// [NEW] Level 2.5: 负选择 Agent (The Judge)
+	t2 := template.Must(template.New("NegativeSelector").Parse(`
+You are a Senior Code Reviewer (The Judge).
+We are modifying the "Core Functions" based on the Intent. To do this safely, we found some "Dependency Candidates".
+
+Task: Determine which Dependencies we MUST read the "Implementation Body" of.
+- If we only need to CALL a dependency, we DO NOT need its body (System will provide signature only) -> REJECT.
+- If the dependency contains complex logic that might break, or needs modification -> KEEP.
+
+<Intent>
+{{.Intent}}
+</Intent>
+
+<Core Functions (Targets)>
+{{.CoreSkeleton}}
+</Core Functions>
+
+<Dependency Candidates (To Review)>
+{{.DepCandidates}}
+</Dependency Candidates>
+
+Return the IDs of dependencies we MUST Keep (Body). 
+`))
+
+	selAgent := agent.Create(t1).WithToolCallMutextRun().WithModels(llm.ModelDefault)
+	negAgent := agent.Create(t2).WithToolCallMutextRun().WithModels(llm.ModelDefault)
 
 	return &Selector{
-		SelectionAgent:     selAgent,
-		PromotionThreshold: 0.5, // 设定为 50%
+		SelectionAgent:         selAgent,
+		NegativeSelectionAgent: negAgent,
+		PromotionThreshold:     0.5,
 	}
 }
 
-// SelectRelevantChunks 返回结构化上下文，而非简单的 Slice
+// SelectRelevantChunks 执行 Diamond Selection (L1 -> L2 -> L2.5)
 func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) (*SelectedContext, error) {
 	fmt.Printf("🧠 Selecting Context for: %.50s...\n", intent)
 
-	// 1. 加载所有 Chunk
+	// 1. Level 0: 加载所有 Chunk (Lazy Load 优化点：这里暂时全量加载，后续可改向量检索)
 	allChunksMap, err := storage.ChunkStorage.HGetAll()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load chunks from storage: %w", err)
 	}
 	allChunks := lo.Values(allChunksMap)
 
-	// 2. 构建候选列表 (Skeleton View)
+	// 2. 准备 Level 1 候选列表
 	var sb strings.Builder
 	for _, c := range allChunks {
 		skel := c.Skeleton
@@ -82,10 +109,10 @@ func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) (*Selec
 		sb.WriteString(fmt.Sprintf("ID: %s\n%s\n---\n", c.ID, skel))
 	}
 
-	// 3. Agent 筛选 (Level 1)
-	var finalIDs []string
+	// 3. Level 1: 核心定位 (Targeting)
+	var coreIDs []string
 	keyedAgent := s.SelectionAgent.UseTools(llm.NewTool("PickChunks", "Select necessary code chunks (IDs)", func(res *SelectionResult) {
-		finalIDs = res.SelectedIDs
+		coreIDs = res.SelectedIDs
 	}))
 
 	err = keyedAgent.Call(map[string]any{
@@ -95,53 +122,95 @@ func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) (*Selec
 		"Candidates":     sb.String(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("agent call failed: %w", err)
+		return nil, fmt.Errorf("L1 selection failed: %w", err)
 	}
 
-	// 4. 依赖扩散 (Level 2)
-	finalIDSet := s.expandDependencies(finalIDs, allChunksMap)
+	// 4. Level 2: 依赖扩散 (Expansion)
+	// 返回所有 1-Hop 依赖的 ID 集合
+	allDependencyIDs := s.expandDependencies(coreIDs, allChunksMap)
+
+	// 剔除 coreIDs 自身 (防止重复处理)
+	allDependencyIDs = lo.Without(allDependencyIDs, coreIDs...)
+
+	// 5. Level 2.5: 分类与负选择 (Pruning)
+	var autoKeepIDs []string   // Structs/Interfaces -> 自动保留
+	var reviewListIDs []string // Functions/Methods -> 需要审查
+
+	for _, id := range allDependencyIDs {
+		chunk, exists := allChunksMap[id]
+		if !exists {
+			continue
+		}
+		// 基于新版 models 常量进行判断
+		switch chunk.Type {
+		case models.ChunkTypeStruct, models.ChunkTypeInterface, models.ChunkTypeType, models.ChunkTypeClass:
+			autoKeepIDs = append(autoKeepIDs, id)
+		default:
+			// Function, Method 默认为待审查
+			reviewListIDs = append(reviewListIDs, id)
+		}
+	}
+
+	// 执行负选择 Agent
+	keptReviewIDs := s.runNegativeSelection(intent, coreIDs, reviewListIDs, allChunksMap, model)
+
+	// 6. 组装最终集合
+	finalIDSet := make(map[string]struct{})
+
+	// A. Core Chunks (Body)
+	for _, id := range coreIDs {
+		finalIDSet[id] = struct{}{}
+	}
+	// B. Auto-Keep Types (Body)
+	for _, id := range autoKeepIDs {
+		finalIDSet[id] = struct{}{}
+	}
+	// C. Kept Logic (Body)
+	for _, id := range keptReviewIDs {
+		finalIDSet[id] = struct{}{}
+	}
+
+	// D. Pruned Logic (Skeleton Only) - 这是一个特殊集合
+	// 被 ReviewList 包含 但 未被 Kept 包含的 ID
+	prunedIDs := lo.Without(reviewListIDs, keptReviewIDs...)
 
 	// ==========================================
-	// 5. 密度计算与自动升格 (Scheme B Implementation)
+	// 7. 密度计算与自动升格 (Scheme B)
 	// ==========================================
 
-	// A. 统计每个文件的总 Chunk 数
+	// 统计 Full Body 的 Chunk
 	fileTotalCounts := make(map[string]int)
+	fileSelectedCounts := make(map[string]int)
+
 	for _, c := range allChunks {
 		fileTotalCounts[c.FilePath]++
 	}
-
-	// B. 统计每个文件被选中的 Chunk 数
-	fileSelectedCounts := make(map[string]int)
 	for id := range finalIDSet {
 		if c, ok := allChunksMap[id]; ok {
 			fileSelectedCounts[c.FilePath]++
 		}
 	}
 
-	// C. 判定哪些文件需要升格
 	filesToPromote := make(map[string]bool)
 	for filePath, selectedCount := range fileSelectedCounts {
 		totalCount := fileTotalCounts[filePath]
 		if totalCount == 0 {
 			continue
 		}
-
 		ratio := float64(selectedCount) / float64(totalCount)
-		// 规则：选中比例 > 阈值，或者文件极其微小（只有1个Chunk且被选中）
 		if ratio >= s.PromotionThreshold || (totalCount == 1 && selectedCount == 1) {
 			filesToPromote[filePath] = true
 			fmt.Printf("📂 Auto-Promoting File (Density %.0f%%): %s\n", ratio*100, filePath)
 		}
 	}
 
-	// D. 组装最终结果
+	// 8. 构造输出结果
 	result := &SelectedContext{
 		Chunks:    make([]*models.Chunk, 0),
 		FullFiles: make(map[string]string),
 	}
 
-	// 处理全量文件
+	// 处理升格文件
 	for filePath := range filesToPromote {
 		content := utils.ReadFile(filePath)
 		if content != "" {
@@ -149,57 +218,119 @@ func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) (*Selec
 		}
 	}
 
-	// 处理剩余 Chunk (如果所属文件已被升格，则跳过该 Chunk)
+	// 添加 Full Body Chunks (且未被升格)
 	for id := range finalIDSet {
 		chunk, ok := allChunksMap[id]
-		if !ok {
+		if !ok || filesToPromote[chunk.FilePath] {
 			continue
 		}
-		// 只有当文件不在 FullFiles 列表时，才添加 Chunk
-		if !filesToPromote[chunk.FilePath] {
-			result.Chunks = append(result.Chunks, chunk)
-		}
+		result.Chunks = append(result.Chunks, chunk)
 	}
 
-	fmt.Printf("✅ Selected: %d Full Files, %d Individual Chunks\n", len(result.FullFiles), len(result.Chunks))
+	// [核心策略] 添加 Pruned Chunks (Skeleton 降级)
+	// 仅当文件未被升格时添加。
+	// 关键：我们修改内存中 Chunk 副本的 Body 为 Skeleton，从而骗过 goal_runner
+	for _, id := range prunedIDs {
+		originalChunk, ok := allChunksMap[id]
+		if !ok || filesToPromote[originalChunk.FilePath] {
+			continue
+		}
+
+		// 复制一份，避免修改全局缓存
+		prunedChunk := *originalChunk
+		// 【降级操作】将 Body 替换为 Skeleton
+		prunedChunk.Body = prunedChunk.Skeleton
+		// 标记一下（可选，方便调试）
+		// prunedChunk.Body = "// [Skeleton Reference Only]\n" + prunedChunk.Skeleton
+
+		result.Chunks = append(result.Chunks, &prunedChunk)
+	}
+
+	fmt.Printf("✅ Selected: %d Full Files, %d Body Chunks, %d Skeleton Refs\n",
+		len(result.FullFiles), len(finalIDSet)-len(result.FullFiles), len(prunedIDs)) // 估算打印
 	return result, nil
 }
 
-// expandDependencies 保持不变...
-func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) map[string]struct{} {
-	// ... (保持原有代码不变)
-	resultSet := make(map[string]struct{})
-	uniqueSymbols := make(map[string]struct{})
+// runNegativeSelection 执行 L2.5 审查
+func (s *Selector) runNegativeSelection(intent string, coreIDs []string, candidates []string, allChunks map[string]*models.Chunk, model *llm.Model) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
 
-	for _, id := range seeds {
-		resultSet[id] = struct{}{}
+	// 构造 Prompt 素材
+	var coreSb strings.Builder
+	for _, id := range coreIDs {
+		if c, ok := allChunks[id]; ok {
+			coreSb.WriteString(fmt.Sprintf("ID: %s\n%s\n---\n", c.ID, c.Skeleton))
+		}
+	}
+
+	var candSb strings.Builder
+	for _, id := range candidates {
+		if c, ok := allChunks[id]; ok {
+			candSb.WriteString(fmt.Sprintf("ID: %s\n%s\n---\n", c.ID, c.Skeleton))
+		}
+	}
+
+	var keptIDs []string
+	// 使用与 L1 相同的 SelectionResult 结构复用工具
+	keyedAgent := s.NegativeSelectionAgent.UseTools(llm.NewTool("KeepDependencies", "List of dependency IDs to KEEP (Body)", func(res *SelectionResult) {
+		keptIDs = res.SelectedIDs
+	}))
+
+	err := keyedAgent.Call(map[string]any{
+		agent.UseModel:  model,
+		"Intent":        intent,
+		"CoreSkeleton":  coreSb.String(),
+		"DepCandidates": candSb.String(),
+	})
+
+	if err != nil {
+		fmt.Printf("⚠️ L2.5 Negative Selection failed: %v. Keeping all candidates safely.\n", err)
+		return candidates // 降级策略：如果 LLM 失败，保留所有（宁滥勿缺）
+	}
+
+	fmt.Printf("📉 Negative Selection: Pruned %d/%d candidates.\n", len(candidates)-len(keptIDs), len(candidates))
+	return keptIDs
+}
+
+// expandDependencies 查找所有 1-Hop 依赖 ID (L2)
+func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) []string {
+	uniqueSeeds := lo.Uniq(seeds)
+	dependencySet := make(map[string]struct{})
+
+	// 收集所有种子 Chunk 引用的符号
+	var symbolsToQuery []string
+	seenSymbols := make(map[string]bool)
+
+	for _, id := range uniqueSeeds {
 		chunk, ok := allChunks[id]
 		if !ok {
 			continue
 		}
-		for _, refSymbol := range chunk.SymbolsReferenced {
-			if len(refSymbol) > 1 {
-				uniqueSymbols[refSymbol] = struct{}{}
+		for _, sym := range chunk.SymbolsReferenced {
+			if len(sym) > 1 && !seenSymbols[sym] {
+				symbolsToQuery = append(symbolsToQuery, sym)
+				seenSymbols[sym] = true
 			}
 		}
 	}
 
-	symbolList := make([]string, 0, len(uniqueSymbols))
-	for sym := range uniqueSymbols {
-		symbolList = append(symbolList, sym)
-	}
-
-	if len(symbolList) > 0 {
-		targetIDs, err := storage.Indexer.GetUnionLinks(symbolList)
+	// 批量查询反向索引
+	if len(symbolsToQuery) > 0 {
+		targetIDs, err := storage.Indexer.GetUnionLinks(symbolsToQuery)
 		if err != nil {
 			fmt.Printf("⚠️ Error fetching dependencies: %v\n", err)
 		} else {
 			for _, tid := range targetIDs {
+				// 确保 ID 存在于当前代码库（防止脏数据）
 				if _, exists := allChunks[tid]; exists {
-					resultSet[tid] = struct{}{}
+					dependencySet[tid] = struct{}{}
 				}
 			}
 		}
 	}
-	return resultSet
+
+	// 转换为 Slice 返回
+	return lo.Keys(dependencySet)
 }
