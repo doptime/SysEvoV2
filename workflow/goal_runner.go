@@ -6,7 +6,7 @@ import (
 
 	"sysevov2/agent"
 	"sysevov2/context"
-	"sysevov2/editing" // 假设你的 ApplyModification 在这里
+	"sysevov2/editing"
 	"sysevov2/llm"
 	"sysevov2/models"
 	"sysevov2/utils"
@@ -15,6 +15,11 @@ import (
 type GoalRunner struct {
 	Selector    *context.Selector
 	EditorAgent *agent.Agent
+}
+
+func (g *GoalRunner) WithFilesMustInclude(files ...string) *GoalRunner {
+	g.Selector.FilesMustInclude = append(g.Selector.FilesMustInclude, files...)
+	return g
 }
 
 var LLMToolApplyModification = llm.NewTool("ApplyModification", "Modify a code chunk", func(mod *models.CodeModification) {
@@ -37,7 +42,6 @@ You are a Senior Engineer. Achieve the Goal by modifying code chunks.
 </Goal>
 `))
 
-	// 创建 Editor Agent 并绑定 ApplyModification 工具
 	editor := agent.Create(t).WithToolCallMutextRun().UseTools(LLMToolApplyModification)
 
 	return &GoalRunner{
@@ -46,38 +50,47 @@ You are a Senior Engineer. Achieve the Goal by modifying code chunks.
 	}
 }
 
-func (r *GoalRunner) ExportContextToFile(goal string, contextString string) {
-	var contextStr string
-	contextStr += fmt.Sprintf("<Goal>\n %s\n</Goal>\n\n", goal)
-	for _, file := range r.Selector.FilesMustInclude {
-		contextStr += fmt.Sprintf("// Important File: %s\n", file)
-
-	}
-	contextStr += contextString
-
-	utils.StringToFile("GoalWithContext.txt", contextStr)
+// ExportContextToFile 辅助调试方法
+func (r *GoalRunner) ExportContextToFile(goal string, contextStr string) {
+	finalContent := fmt.Sprintf("<Goal>\n%s\n</Goal>\n\n%s", goal, contextStr)
+	utils.StringToFile("GoalWithContext.txt", finalContent)
 }
+
 func (r *GoalRunner) ExecuteGoal(goal string, contextSelectModel, CodeImproveModel *llm.Model) error {
-	// 1. 获取上下文
-	chunks, err := r.Selector.SelectRelevantChunks(goal, contextSelectModel)
+	// 1. 获取上下文 (返回的是 SelectedContext 结构体)
+	selectedCtx, err := r.Selector.SelectRelevantChunks(goal, contextSelectModel)
 	if err != nil {
 		return err
 	}
 
 	var contextStr string
+
+	// A. 必须包含的重要文件 (README 等)
 	for _, file := range r.Selector.FilesMustInclude {
-		contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", file, utils.ReadFile(file))
+		// 防止与自动升格的文件重复，这里可以加个判断，或者直接覆盖
+		// 假设 FilesMustInclude 优先级最高
+		if _, alreadyPromoted := selectedCtx.FullFiles[file]; !alreadyPromoted {
+			contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", file, utils.ReadFile(file))
+		}
 	}
 
-	for _, c := range chunks {
+	// B. 自动升格的全量文件 (Scheme B Result)
+	for path, content := range selectedCtx.FullFiles {
+		contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", path, content)
+	}
+
+	// C. 剩余的零散 Chunks
+	for _, c := range selectedCtx.Chunks {
 		contextStr += fmt.Sprintf("<Chunk id=\"%s\"> \n%s </Chunk>\n\n", c.ID, c.Body)
 	}
 
+	// 保存到本地以便调试
 	r.ExportContextToFile(goal, contextStr)
 
 	if CodeImproveModel == nil {
 		return nil
 	}
+
 	// 2. 调用生成
 	return r.EditorAgent.Call(map[string]any{
 		agent.UseModel: CodeImproveModel,

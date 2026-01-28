@@ -25,12 +25,20 @@ try {
 
     // 4. 遍历 AST
     function visit(node) {
-        // 识别关键节点
-        if (ts.isFunctionDeclaration(node) || 
-            ts.isMethodDeclaration(node) || 
-            ts.isClassDeclaration(node) || 
-            ts.isInterfaceDeclaration(node)) {
-            
+        let chunkType = null;
+        
+        // 识别关键节点并赋予字符串类型
+        if (ts.isFunctionDeclaration(node)) {
+            chunkType = "Function";
+        } else if (ts.isMethodDeclaration(node)) {
+            chunkType = "Method";
+        } else if (ts.isClassDeclaration(node)) {
+            chunkType = "Class";
+        } else if (ts.isInterfaceDeclaration(node)) {
+            chunkType = "Interface";
+        }
+
+        if (chunkType) {
             const name = node.name ? node.name.text : 'anonymous';
             const start = node.getStart();
             const end = node.getEnd();
@@ -51,12 +59,12 @@ try {
             // 提取脏链接 (Symbols)
             // 简单正则提取，忽略 JS 关键字
             const words = body.match(/[a-zA-Z_]\w+/g) || [];
-            const keywords = new Set(['function', 'const', 'let', 'var', 'return', 'if', 'else', 'for', 'class', 'interface', 'import', 'export', 'from', 'null', 'undefined', 'true', 'false', 'new', 'this']);
+            const keywords = new Set(['function', 'const', 'let', 'var', 'return', 'if', 'else', 'for', 'class', 'interface', 'import', 'export', 'from', 'null', 'undefined', 'true', 'false', 'new', 'this', 'public', 'private', 'protected', 'try', 'catch', 'finally', 'switch', 'case', 'break', 'continue']);
             const refs = [...new Set(words)].filter(w => !keywords.has(w) && w.length > 2);
 
             chunks.push({
                 id: `${targetFile}:${name}`,
-                type: ts.SyntaxKind[node.kind], // 数字类型，Go 端可以转
+                type: chunkType, // 字符串类型
                 skeleton: skeleton,
                 body: body,
                 symbols_referenced: refs

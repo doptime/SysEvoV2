@@ -44,7 +44,7 @@ func ParseTSFile(targetPath string) ([]*models.Chunk, error) {
 	// 5. 解析 JSON
 	var rawChunks []struct {
 		ID                string   `json:"id"`
-		Type              int      `json:"type"` // TS Kind ID
+		Type              string   `json:"type"` // JSON 中的 Type 现在是字符串
 		Skeleton          string   `json:"skeleton"`
 		Body              string   `json:"body"`
 		SymbolsReferenced []string `json:"symbols_referenced"`
@@ -60,7 +60,7 @@ func ParseTSFile(targetPath string) ([]*models.Chunk, error) {
 	for _, rc := range rawChunks {
 		chunks = append(chunks, &models.Chunk{
 			ID:                rc.ID,
-			Type:              fmt.Sprintf("TS_Kind_%d", rc.Type), // 简单标记类型
+			Type:              rc.Type, // 直接赋值字符串
 			Skeleton:          rc.Skeleton,
 			Body:              rc.Body,
 			SymbolsDefined:    extractNameFromID(rc.ID), // 从 ID 反推名字
@@ -74,7 +74,6 @@ func ParseTSFile(targetPath string) ([]*models.Chunk, error) {
 
 // 辅助函数：从 ID "path/to/file.ts:FuncName" 中提取 "FuncName"
 func extractNameFromID(id string) []string {
-	// 修正：删除了未使用的 parts 变量
 	// 假设 ID 是 "path:name"
 	for i := len(id) - 1; i >= 0; i-- {
 		if id[i] == ':' {

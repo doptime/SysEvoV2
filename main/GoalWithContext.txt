@@ -1,8 +1,7 @@
 <Goal>
- 讨论把 部分 本地文件以全量源码的方式追加到 Context 中，以提升上下文的完整性和准确性。优化 Selector 的文件选择逻辑。 这个想法是否必要
+仔细考察现有系统的设计和实现方式，看看是否还有大的改进的余地。
 </Goal>
 
-// Important File: /Users/yang/SysEvoV2/README.md
 <File name="/Users/yang/SysEvoV2/README.md"> 
 这是一份基于之前所有讨论、代码实现及新需求（前后端一体化、多目录支持）重新整理的**SysEvoV2 项目技术规格说明书**。
 
@@ -164,17 +163,17 @@ type CodeModification struct {
 * [x] **存储层:** 实现 Redis Key 定义 (`storage/keys.go`, `storage/index_client.go`)。
 * [x] **解析层 (Go):** 实现 `go/ast` 解析器 (`analysis/parser_go.go`)。
 * [x] **解析层 (TS):** 实现 Node.js Sidecar 解析器 (`analysis/parser_ts_sidecar.go`)。
-* [ ] **索引器:** 更新 `RunIncrementalIndexing` 以支持传入**目录切片 (`[]string`)**，并串联解析与存储逻辑。
+* [x] **索引器:** 更新 `RunIncrementalIndexing` 以支持传入**目录切片 (`[]string`)**，并串联解析与存储逻辑。
 
 ### Phase 2: 上下文选择 (Context Selection)
 
-* [ ] **Agent 集成:** 移植旧版 Agent (`agent`, `models` 包) 到新架构。
-* [ ] **选择器:** 实现 `context/selector.go`，联通本地 LLM 与 Redis 索引。
+* [x] **Agent 集成:** 移植旧版 Agent (`agent`, `models` 包) 到新架构。
+* [x] **选择器:** 实现 `context/selector.go`，联通本地 LLM 与 Redis 索引。
 
 ### Phase 3: 生成与执行 (Execution)
 
-* [ ] **编辑器:** 实现 `editing/ast_editor.go`，完成基于 AST 的精准替换逻辑。
-* [ ] **工作流:** 实现 `workflow/goal_runner.go`，串联 Context -> Cloud Agent -> Editor 闭环。
+* [x] **编辑器:** 实现 `editing/ast_editor.go`，完成基于 AST 的精准替换逻辑。
+* [x] **工作流:** 实现 `workflow/goal_runner.go`，串联 Context -> Cloud Agent -> Editor 闭环。
 
 ---
 
@@ -202,70 +201,183 @@ type CodeModification struct {
 **指令:**
 本项目文档作为后续开发的**唯一真理来源 (Single Source of Truth)**。所有代码实现必须严格遵循上述数据结构与流程定义。 </File>
 
-<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.SelectRelevantChunks"> 
-func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) ([]*models.Chunk, error) {
-	fmt.Printf("🧠 Selecting Context for: %.50s...\n", intent)
+<File name="/Users/yang/SysEvoV2/editing/ast_editor.go"> 
+package editing
 
-	// 1. 加载所有 Chunk (Level 0)
-	allChunksMap, err := storage.ChunkStorage.HGetAll()
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"os/exec"
+	"strings"
+
+	"sysevov2/models"
+)
+
+// ApplyModification 执行单个代码变更
+func ApplyModification(mod *models.CodeModification) error {
+	fmt.Printf("🔨 Applying edit to: %s [%s]\n", mod.FilePath, mod.ActionType)
+
+	if mod.ActionType == "CREATE_FILE" {
+		return os.WriteFile(mod.FilePath, []byte(mod.NewContent), 0644)
+	}
+	// 处理纯删除文件的情况
+	if mod.ActionType == "DELETE" && mod.TargetChunkID == "" {
+		return os.Remove(mod.FilePath)
+	}
+
+	// 1. 读取源文件
+	contentBytes, err := os.ReadFile(mod.FilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load chunks from storage: %w", err)
+		return err
 	}
-	allChunks := lo.Values(allChunksMap)
 
-	// 2. 构建候选列表 (Skeleton View)
-	// 注意：如果项目极大，这里可能需要根据 Embeddings 先做一次粗筛，目前全量放入上下文
-	var sb strings.Builder
-	for _, c := range allChunks {
-		skel := c.Skeleton
-		// 截断过长的骨架以节省 Token
-		if len(skel) > 400 {
-			skel = skel[:400] + "..."
+	// 2. 实时解析 AST
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, mod.FilePath, contentBytes, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("parse failed: %v", err)
+	}
+
+	// 3. 定位目标 Chunk
+	start, end := findChunkRange(fset, node, mod.TargetChunkID)
+
+	// 4. 执行替换或追加
+	var newContent []byte
+
+	// Case A: 成功定位到目标 Chunk -> 执行替换或删除
+	if start != -1 && end != -1 {
+		if mod.ActionType == "DELETE" {
+			newContent = append(contentBytes[:start], contentBytes[end:]...)
+		} else {
+			// MODIFY
+			newContent = append(contentBytes[:start], []byte(mod.NewContent)...)
+			newContent = append(newContent, contentBytes[end:]...)
 		}
-		sb.WriteString(fmt.Sprintf("ID: %s\n%s\n---\n", c.ID, skel))
+	} else {
+		// Case B: 未定位到目标
+
+		// [修复核心]：如果是 MODIFY/DELETE 且找不到目标，必须报错！
+		// 只有明确是 "ADD" 或者找不到时的特定逻辑才允许追加
+		if mod.ActionType == "MODIFY" || mod.ActionType == "DELETE" {
+			return fmt.Errorf("chunk not found for %s: %s (offsets: -1, -1)", mod.ActionType, mod.TargetChunkID)
+		}
+
+		// 只有在非 MODIFY 情况下（例如明确的 ADD 指令），才执行追加作为回退
+		// 追加模式 (Fallback)
+		// 注意：如果原文件末尾没有换行，最好补一个
+		sep := "\n\n"
+		if len(contentBytes) > 0 && contentBytes[len(contentBytes)-1] != '\n' {
+			sep = "\n" + sep
+		}
+		newContent = append(contentBytes, []byte(sep+mod.NewContent)...)
 	}
 
-	// 3. 配置工具与回调 (Level 1 Selection)
-	// 使用闭包捕获 Agent 选中的 ID
-	var finalIDs []string
+	// 5. 写回文件
+	if err := os.WriteFile(mod.FilePath, newContent, 0644); err != nil {
+		return err
+	}
 
-	// 注意：这里假设 UseTools 返回一个新的 Agent 实例或不仅限于单次调用
-	// 为了线程安全，建议每次请求克隆 Agent，或者确保 UseTools 是请求隔离的
-	// 这里沿用你的现有模式
-	keyedAgent := s.SelectionAgent.UseTools(llm.NewTool("PickChunks", "Select necessary code chunks (IDs)", func(res *SelectionResult) {
-		finalIDs = res.SelectedIDs
-	}))
+	// 6. 自动修复 Imports (Goimports)
+	if strings.HasSuffix(mod.FilePath, ".go") {
+		exec.Command("goimports", "-w", mod.FilePath).Run()
+	}
 
-	// 4. 调用 LLM
-	err = keyedAgent.Call(map[string]any{
-		agent.UseModel:   model,
-		"ImportantFiles": utils.WrapFilesInXML("ImportantFile", s.FilesMustInclude...),
-		"Intent":         intent,
-		"Candidates":     sb.String(),
+	return nil
+}
+
+// findChunkRange 辅助函数：在 AST 中定位 ID
+func findChunkRange(fset *token.FileSet, node *ast.File, chunkID string) (int, int) {
+	// 从 chunkID "main.go:User.Save" 提取 "User.Save"
+	parts := strings.Split(chunkID, ":")
+	// [修复]：增加 TrimSpace，防止 "extractGoDefinitions " 这种带尾随空格的情况导致不匹配
+	targetName := strings.TrimSpace(parts[len(parts)-1])
+
+	var start, end = -1, -1
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		if start != -1 {
+			return false
+		} // 已找到
+
+		switch x := n.(type) {
+		case *ast.FuncDecl:
+			// 拼接 Receiver 名字
+			name := x.Name.Name
+			if x.Recv != nil && len(x.Recv.List) > 0 {
+				recvType := ""
+				// ... (原有 receiver 处理逻辑保持不变) ...
+				if star, ok := x.Recv.List[0].Type.(*ast.StarExpr); ok {
+					if id, ok := star.X.(*ast.Ident); ok {
+						recvType = id.Name
+					}
+				} else if id, ok := x.Recv.List[0].Type.(*ast.Ident); ok {
+					recvType = id.Name
+				}
+				if recvType != "" {
+					name = recvType + "." + name
+				}
+			}
+
+			// [建议]：如果你的 ID 系统可能包含包名 (如 analysis.extractGoSymbols)，
+			// 你可以在这里加一个逻辑：如果 targetName 包含点但没匹配上，尝试仅匹配函数名部分。
+			if name == targetName {
+				start = fset.Position(x.Pos()).Offset
+				end = fset.Position(x.End()).Offset
+			}
+		// ... (GenDecl 逻辑保持不变) ...
+		case *ast.GenDecl:
+			if x.Tok == token.TYPE && len(x.Specs) > 0 {
+				if ts, ok := x.Specs[0].(*ast.TypeSpec); ok {
+					if ts.Name.Name == targetName {
+						start = fset.Position(x.Pos()).Offset
+						end = fset.Position(x.End()).Offset
+					}
+				}
+			}
+		}
+		return true
 	})
-	if err != nil {
-		return nil, fmt.Errorf("agent call failed: %w", err)
-	}
+	return start, end
+} </File>
 
-	// 5. 脏扩散 (Level 2 Dependency Expansion)
-	// 基于 Level 1 选中的 Chunk，查找它们引用的符号是由谁定义的
-	finalIDSet := s.expandDependencies(finalIDs, allChunksMap)
+<File name="/Users/yang/SysEvoV2/context/selector.go"> 
+package context
 
-	// 6. 组装最终结果
-	result := make([]*models.Chunk, 0, len(finalIDSet))
-	for id := range finalIDSet {
-		if chunk, ok := allChunksMap[id]; ok {
-			result = append(result, chunk)
-		}
-	}
+import (
+	"fmt"
+	"strings"
+	"text/template"
 
-	fmt.Printf("✅ Selected %d chunks (Seeds: %d, Expanded: %d)\n", len(result), len(finalIDs), len(result)-len(finalIDs))
-	return result, nil
-} </Chunk>
+	"sysevov2/agent"
+	"sysevov2/llm"
+	"sysevov2/models"
+	"sysevov2/storage"
+	"sysevov2/utils"
 
-<Chunk id="/Users/yang/SysEvoV2/context/selector.go:NewSelector"> 
+	"github.com/samber/lo"
+)
+
+// SelectedContext 封装最终的选择结果：包含零散的 Chunks 和被升级为全量的文件
+type SelectedContext struct {
+	Chunks    []*models.Chunk   // 零散的代码块
+	FullFiles map[string]string // 路径 -> 文件内容 (被“升格”的文件)
+}
+
+type Selector struct {
+	SelectionAgent   *agent.Agent
+	FilesMustInclude []string
+	// 升格阈值：如果一个文件中超过 50% 的 Chunk 被选中，读取全量文件
+	PromotionThreshold float64
+}
+
+type SelectionResult struct {
+	SelectedIDs []string `description:"The list of Chunk IDs that are strictly necessary."`
+}
+
 func NewSelector() *Selector {
-	// 初始化 Agent 模板
 	t := template.Must(template.New("ContextSelector").Parse(`
 You are a Code Context Selector. Analyze the Intent and the Candidates.
 Return the IDs of chunks that are strictly necessary to fulfill the intent.
@@ -287,53 +399,170 @@ When you have identified the necessary Chunk IDs, you must use the provided tool
 Do not reply with just a Markdown list.
 `))
 
-	// 创建基础 Agent
 	selAgent := agent.Create(t).WithToolCallMutextRun().WithModels(llm.ModelDefault)
 
 	return &Selector{
-		SelectionAgent: selAgent,
+		SelectionAgent:     selAgent,
+		PromotionThreshold: 0.5, // 设定为 50%
 	}
-} </Chunk>
+}
 
-<Chunk id="/Users/yang/SysEvoV2/context/selector.go:SelectionResult"> 
-type SelectionResult struct {
-	SelectedIDs []string `description:"The list of Chunk IDs that are strictly necessary."`
-} </Chunk>
+// SelectRelevantChunks 返回结构化上下文，而非简单的 Slice
+func (s *Selector) SelectRelevantChunks(intent string, model *llm.Model) (*SelectedContext, error) {
+	fmt.Printf("🧠 Selecting Context for: %.50s...\n", intent)
 
-<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient.GetUnionLinks"> 
-func (c *DirtyIndexClient) GetUnionLinks(symbols []string) ([]string, error) {
-	if len(symbols) == 0 {
-		return []string{}, nil
+	// 1. 加载所有 Chunk
+	allChunksMap, err := storage.ChunkStorage.HGetAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load chunks from storage: %w", err)
 	}
+	allChunks := lo.Values(allChunksMap)
 
-	// 1. 构造所有 Key
-	keys := make([]string, len(symbols))
-	for i, sym := range symbols {
-		// FIX: 确保前缀匹配 README (sys/idx/sym/)
-		keys[i] = fmt.Sprintf("sys/idx/sym/%s", sym)
-	}
-
-	// 2. 调用 Redis SUNION 命令
-	// 假设 redisdb 封装库支持 Do 或者直接支持 Sunion
-	// 如果你的 redisdb 库没有直接暴露 Sunion，通常会有 Do 方法
-	// 这里以通用 Redis 客户端写法为例：
-
-	// 方式 A: 如果 redisdb 是基于 go-redis 的封装
-	// return redisdb.Client.Sunion(context.Background(), keys...).Result()
-
-	// 方式 B: 使用 doptime 框架常见的 SetKey 并不直接支持多 Key 操作，
-	// 你可能需要通过底层的 client 执行。这里假设有一个全局 Client 或 RawClient
-	// 假设 redisdb.GetClient() 返回底层 *redis.Client
-	client, ok := cfgredis.Servers.Get("default")
-	if !ok {
-		return nil, fmt.Errorf("redis client not found")
+	// 2. 构建候选列表 (Skeleton View)
+	var sb strings.Builder
+	for _, c := range allChunks {
+		skel := c.Skeleton
+		if len(skel) > 400 {
+			skel = skel[:400] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("ID: %s\n%s\n---\n", c.ID, skel))
 	}
 
-	cmd := client.SUnion(context.Background(), keys...)
-	return cmd.Result()
-} </Chunk>
+	// 3. Agent 筛选 (Level 1)
+	var finalIDs []string
+	keyedAgent := s.SelectionAgent.UseTools(llm.NewTool("PickChunks", "Select necessary code chunks (IDs)", func(res *SelectionResult) {
+		finalIDs = res.SelectedIDs
+	}))
 
-<Chunk id="/Users/yang/SysEvoV2/utils/textFromfile.go:WrapFilesInXML"> 
+	err = keyedAgent.Call(map[string]any{
+		agent.UseModel:   model,
+		"ImportantFiles": utils.WrapFilesInXML("ImportantFile", s.FilesMustInclude...),
+		"Intent":         intent,
+		"Candidates":     sb.String(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("agent call failed: %w", err)
+	}
+
+	// 4. 依赖扩散 (Level 2)
+	finalIDSet := s.expandDependencies(finalIDs, allChunksMap)
+
+	// ==========================================
+	// 5. 密度计算与自动升格 (Scheme B Implementation)
+	// ==========================================
+
+	// A. 统计每个文件的总 Chunk 数
+	fileTotalCounts := make(map[string]int)
+	for _, c := range allChunks {
+		fileTotalCounts[c.FilePath]++
+	}
+
+	// B. 统计每个文件被选中的 Chunk 数
+	fileSelectedCounts := make(map[string]int)
+	for id := range finalIDSet {
+		if c, ok := allChunksMap[id]; ok {
+			fileSelectedCounts[c.FilePath]++
+		}
+	}
+
+	// C. 判定哪些文件需要升格
+	filesToPromote := make(map[string]bool)
+	for filePath, selectedCount := range fileSelectedCounts {
+		totalCount := fileTotalCounts[filePath]
+		if totalCount == 0 {
+			continue
+		}
+
+		ratio := float64(selectedCount) / float64(totalCount)
+		// 规则：选中比例 > 阈值，或者文件极其微小（只有1个Chunk且被选中）
+		if ratio >= s.PromotionThreshold || (totalCount == 1 && selectedCount == 1) {
+			filesToPromote[filePath] = true
+			fmt.Printf("📂 Auto-Promoting File (Density %.0f%%): %s\n", ratio*100, filePath)
+		}
+	}
+
+	// D. 组装最终结果
+	result := &SelectedContext{
+		Chunks:    make([]*models.Chunk, 0),
+		FullFiles: make(map[string]string),
+	}
+
+	// 处理全量文件
+	for filePath := range filesToPromote {
+		content := utils.ReadFile(filePath)
+		if content != "" {
+			result.FullFiles[filePath] = content
+		}
+	}
+
+	// 处理剩余 Chunk (如果所属文件已被升格，则跳过该 Chunk)
+	for id := range finalIDSet {
+		chunk, ok := allChunksMap[id]
+		if !ok {
+			continue
+		}
+		// 只有当文件不在 FullFiles 列表时，才添加 Chunk
+		if !filesToPromote[chunk.FilePath] {
+			result.Chunks = append(result.Chunks, chunk)
+		}
+	}
+
+	fmt.Printf("✅ Selected: %d Full Files, %d Individual Chunks\n", len(result.FullFiles), len(result.Chunks))
+	return result, nil
+}
+
+// expandDependencies 保持不变...
+func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) map[string]struct{} {
+	// ... (保持原有代码不变)
+	resultSet := make(map[string]struct{})
+	uniqueSymbols := make(map[string]struct{})
+
+	for _, id := range seeds {
+		resultSet[id] = struct{}{}
+		chunk, ok := allChunks[id]
+		if !ok {
+			continue
+		}
+		for _, refSymbol := range chunk.SymbolsReferenced {
+			if len(refSymbol) > 1 {
+				uniqueSymbols[refSymbol] = struct{}{}
+			}
+		}
+	}
+
+	symbolList := make([]string, 0, len(uniqueSymbols))
+	for sym := range uniqueSymbols {
+		symbolList = append(symbolList, sym)
+	}
+
+	if len(symbolList) > 0 {
+		targetIDs, err := storage.Indexer.GetUnionLinks(symbolList)
+		if err != nil {
+			fmt.Printf("⚠️ Error fetching dependencies: %v\n", err)
+		} else {
+			for _, tid := range targetIDs {
+				if _, exists := allChunks[tid]; exists {
+					resultSet[tid] = struct{}{}
+				}
+			}
+		}
+	}
+	return resultSet
+} </File>
+
+<File name="/Users/yang/SysEvoV2/utils/textFromfile.go"> 
+package utils
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"sysevov2/config"
+
+	"github.com/dustin/go-humanize"
+)
+
 func WrapFilesInXML(xmlTag string, filenames ...string) string {
 	var sb strings.Builder
 	for _, filename := range filenames {
@@ -349,18 +578,266 @@ func WrapFilesInXML(xmlTag string, filenames ...string) string {
 		}
 	}
 	return sb.String()
+}
+
+// ReadFile reads and returns the trimmed content of a file.
+// On error, prints a message and returns an empty string.
+func ReadFile(filename string) string {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		fmt.Printf("Error reading file %s: %v\n", filename, err)
+		return ""
+	}
+	return strings.TrimSpace(string(content))
+}
+
+// ReadFileTo reads file content and assigns it to the target pointer
+// if the content is non-empty. Returns whether assignment occurred.
+// On read error, prints a message and returns false without assignment.
+func ReadFileTo(filename string, target *string) bool {
+	content := ReadFile(filename)
+	if target != nil && content != "" {
+		*target = content
+		return true
+	}
+	return false
+}
+
+// GenerateAnnotatedXMLFromEvoRealms traverses EvoRealm directory structures,
+// filters files via keep-map, skips binary/empty files, and generates XML output
+// with metadata (filename, human-readable size) and line-numbered content.
+func GenerateAnnotatedXMLFromEvoRealms(fileKeepMap map[string]bool, realms ...*config.EvoRealm) string {
+	var sb strings.Builder
+	for _, realm := range realms {
+		realm.WalkDir(func(path, relativePath string, info os.FileInfo) (e error) {
+			fmt.Printf("Processing file: %s\n", path)
+			if len(fileKeepMap) > 0 {
+				if _, ok := fileKeepMap[relativePath]; !ok {
+					return nil
+				}
+			}
+
+			// Read the file content
+			content := ReadFile(path)
+			if binaryFile := strings.Contains(content, "\x00") || len(content) == 0; binaryFile {
+				return nil
+			}
+			fileSz := "\n<file-size>" + humanize.Bytes(uint64(len(content))) + "</file-size>"
+			fileContent := "\n<file-content>\n" + LineNumberedFileContent(content, 1) + "\n</file-content>"
+
+			fileinfo := fmt.Sprint("\n<file>\n<file-name>", relativePath, "</file-name>"+fileSz, fileContent, "\n</file>\n")
+
+			sb.WriteString(fileinfo)
+			return nil
+		})
+	}
+	return sb.String()
+} </File>
+
+<File name="/Users/yang/SysEvoV2/models/models.go"> 
+package models
+
+// Chunk 代表一个代码原子（函数/结构体/接口）
+type Chunk struct {
+	// 唯一标识符: "filepath:start_byte-end_byte"
+	// msgpack: 数据库存储字段名
+	ID string `json:"id" msgpack:"id"`
+
+	// 类型: "Function", "Struct", "Interface"
+	Type string `json:"type" msgpack:"type"`
+
+	// 骨架: 仅签名 + 注释 (用于 Level 1 意图筛选)
+	Skeleton string `json:"skeleton" msgpack:"skeleton"`
+
+	// 全文: 完整的代码实现 (用于 Level 3 生成)
+	Body string `json:"body" msgpack:"body"`
+
+	// 符号表: 定义了什么符号
+	SymbolsDefined []string `json:"symbols_defined" msgpack:"symbols_defined"`
+
+	// 引用表: 调用了什么符号 (用于构建脏链接图)
+	SymbolsReferenced []string `json:"symbols_referenced" msgpack:"symbols_referenced"`
+
+	// 文件元数据: 用于增量更新检查
+	FilePath  string `json:"file_path" msgpack:"file_path"`
+	UpdatedAt int64  `json:"updated_at" msgpack:"updated_at"` // Unix Timestamp
+} </File>
+
+<File name="/Users/yang/SysEvoV2/analysis/parser_ts_sidecar.go"> 
+package analysis
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sysevov2/models"
+)
+
+// analyzerScriptPath 定义分析器脚本的相对路径
+// 部署时确保 analyzers 目录和二进制文件在一起，或者通过环境变量配置
+const analyzerScriptPath = "../analysis/analyzer.js"
+
+// ParseTSFile 启动一个 Node 子进程来分析目标文件
+func ParseTSFile(targetPath string) ([]*models.Chunk, error) {
+	// 1. 获取当前工作目录，定位分析器脚本
+	cwd, _ := os.Getwd()
+	scriptAbsPath := filepath.Join(cwd, analyzerScriptPath)
+
+	// 检查脚本是否存在 (开发阶段常见错误)
+	if _, err := os.Stat(scriptAbsPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("TS analyzer not found at: %s", scriptAbsPath)
+	}
+
+	// 2. 构造命令: node <script> <target>
+	// 这完全符合你的要求：运行第三方可执行文件 (node)，不侵入目标项目
+	cmd := exec.Command("node", scriptAbsPath, targetPath)
+
+	// 3. 捕获输出
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	// 4. 执行
+	err := cmd.Run()
+	if err != nil {
+		return nil, fmt.Errorf("node exec failed: %v | stderr: %s", err, stderr.String())
+	}
+
+	// 5. 解析 JSON
+	var rawChunks []struct {
+		ID                string   `json:"id"`
+		Type              int      `json:"type"` // TS Kind ID
+		Skeleton          string   `json:"skeleton"`
+		Body              string   `json:"body"`
+		SymbolsReferenced []string `json:"symbols_referenced"`
+	}
+
+	if err := json.Unmarshal(out.Bytes(), &rawChunks); err != nil {
+		// 如果输出不是 JSON，可能是脚本崩了打印了堆栈
+		return nil, fmt.Errorf("json parse failed: %v | output: %s", err, out.String())
+	}
+
+	// 6. 转换模型
+	var chunks []*models.Chunk
+	for _, rc := range rawChunks {
+		chunks = append(chunks, &models.Chunk{
+			ID:                rc.ID,
+			Type:              fmt.Sprintf("TS_Kind_%d", rc.Type), // 简单标记类型
+			Skeleton:          rc.Skeleton,
+			Body:              rc.Body,
+			SymbolsDefined:    extractNameFromID(rc.ID), // 从 ID 反推名字
+			SymbolsReferenced: rc.SymbolsReferenced,
+			FilePath:          targetPath,
+		})
+	}
+
+	return chunks, nil
+}
+
+// 辅助函数：从 ID "path/to/file.ts:FuncName" 中提取 "FuncName"
+func extractNameFromID(id string) []string {
+	// 修正：删除了未使用的 parts 变量
+	// 假设 ID 是 "path:name"
+	for i := len(id) - 1; i >= 0; i-- {
+		if id[i] == ':' {
+			return []string{id[i+1:]}
+		}
+	}
+	return []string{"anonymous"}
+} </File>
+
+<File name="/Users/yang/SysEvoV2/models/code_mod.go"> 
+package models
+
+// CodeModification 代表对一个代码块的原子修改意图
+// 这是 AI (Gemini) 输出的核心结构
+type CodeModification struct {
+	// 上下文关联
+	FilePath string `json:"file_path" description:"Required. The target file path."`
+
+	// 核心定位: ChunkID
+	// 格式: "path/to/file.go:FuncName" 或 "path/to/file.go:TypeName"
+	// 如果是新增文件或全局追加，留空或使用 "EOF"
+	TargetChunkID string `json:"target_chunk_id" description:"Required. The ID of the code chunk to modify. e.g. 'main.go:User.Save'."`
+
+	// 变更类型
+	ActionType string `json:"action_type" description:"One of: 'MODIFY', 'DELETE', 'CREATE_FILE'"`
+
+	// 新代码内容
+	// 必须是完整的 AST 节点代码（包含签名、注释和函数体）
+	NewContent string `json:"new_content" description:"The complete new code for this chunk. Must be valid Go/TS code."`
+
+	// 思维链 (CoT)
+	Reasoning string `json:"reasoning" description:"Why this change is necessary."`
+}
+
+// Solution 代表针对一个目标的一组修改方案
+type Solution struct {
+	Modifications []*CodeModification `json:"modifications"`
+	Status        string              `json:"status"` // "PENDING", "APPLIED", "FAILED"
+} </File>
+
+<Chunk id="/Users/yang/SysEvoV2/storage/index_client.go:DirtyIndexClient"> 
+type DirtyIndexClient struct{} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/llm/tool.go:Name"> 
+func (t *Tool[v]) Name() string {
+	return t.Tool.Function.Name
 } </Chunk>
 
-<Chunk id="/Users/yang/SysEvoV2/agent/agent.go:Create"> 
-func Create(_template *template.Template, tools ...llm.ToolInterface) (a *Agent) {
-	a = &Agent{
-		Models:         []*llm.Model{llm.ModelDefault},
-		toolsCallbacks: map[string]func(Param interface{}, CallMemory map[string]any) error{},
-		PromptTemplate: _template,
+<Chunk id="/Users/yang/SysEvoV2/workflow/goal_runner.go:GoalRunner.ExecuteGoal"> 
+func (r *GoalRunner) ExecuteGoal(goal string, contextSelectModel, CodeImproveModel *llm.Model) error {
+	// 1. 获取上下文 (返回的是 SelectedContext 结构体)
+	selectedCtx, err := r.Selector.SelectRelevantChunks(goal, contextSelectModel)
+	if err != nil {
+		return err
 	}
-	a.UseTools(tools...)
-	a.WithToolcallParser(nil)
-	return a
+
+	var contextStr string
+
+	// A. 必须包含的重要文件 (README 等)
+	for _, file := range r.Selector.FilesMustInclude {
+		// 防止与自动升格的文件重复，这里可以加个判断，或者直接覆盖
+		// 假设 FilesMustInclude 优先级最高
+		if _, alreadyPromoted := selectedCtx.FullFiles[file]; !alreadyPromoted {
+			contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", file, utils.ReadFile(file))
+		}
+	}
+
+	// B. 自动升格的全量文件 (Scheme B Result)
+	for path, content := range selectedCtx.FullFiles {
+		contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", path, content)
+	}
+
+	// C. 剩余的零散 Chunks
+	for _, c := range selectedCtx.Chunks {
+		contextStr += fmt.Sprintf("<Chunk id=\"%s\"> \n%s </Chunk>\n\n", c.ID, c.Body)
+	}
+
+	// 保存到本地以便调试
+	r.ExportContextToFile(goal, contextStr)
+
+	if CodeImproveModel == nil {
+		return nil
+	}
+
+	// 2. 调用生成
+	return r.EditorAgent.Call(map[string]any{
+		agent.UseModel: CodeImproveModel,
+		"Goal":         goal,
+		"Context":      contextStr,
+	})
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/llm/tool.go:Tool"> 
+type Tool[v any] struct {
+	openai.Tool
+	GoogleFunc genai.FunctionDeclaration
+	Functions  []func(param v)
 } </Chunk>
 
 <Chunk id="/Users/yang/SysEvoV2/utils/cannicalHash.go:ID"> 
@@ -383,13 +860,6 @@ func ID(v interface{}, Idlength ...int) string {
 	result := new(big.Int).SetUint64(uint64(hashValue)).Text(62)[:IdLen]
 
 	return result
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector"> 
-type Selector struct {
-	// 使用模板定义的 Agent
-	SelectionAgent   *agent.Agent
-	FilesMustInclude []string
 } </Chunk>
 
 <Chunk id="/Users/yang/SysEvoV2/llm/tool.go:NewTool"> 
@@ -462,147 +932,119 @@ func NewTool[v any](name string, description string, fs ...func(param v)) *Tool[
 	return a
 } </Chunk>
 
-<Chunk id="/Users/yang/SysEvoV2/models/models.go:Chunk"> 
-type Chunk struct {
-	// 唯一标识符: "filepath:start_byte-end_byte"
-	// msgpack: 数据库存储字段名
-	ID string `json:"id" msgpack:"id"`
+<Chunk id="/Users/yang/SysEvoV2/analysis/indexer.go:RunParallelIndexing"> 
+func RunParallelIndexing(roots []string, numThreads int) error {
+	if numThreads <= 0 {
+		numThreads = 1
+	}
 
-	// 类型: "Function", "Struct", "Interface"
-	Type string `json:"type" msgpack:"type"`
+	var wg sync.WaitGroup
+	// 使用缓冲 channel 作为信号量限制并发协程数
+	semaphore := make(chan struct{}, numThreads)
+	// 用于捕获并发过程中的错误
+	errChan := make(chan error, len(roots))
 
-	// 骨架: 仅签名 + 注释 (用于 Level 1 意图筛选)
-	Skeleton string `json:"skeleton" msgpack:"skeleton"`
+	fmt.Printf("🚀 Starting parallel indexing with %d threads...\n", numThreads)
 
-	// 全文: 完整的代码实现 (用于 Level 3 生成)
-	Body string `json:"body" msgpack:"body"`
+	for _, root := range roots {
+		wg.Add(1)
+		go func(path string) {
+			defer wg.Done()
 
-	// 符号表: 定义了什么符号
-	SymbolsDefined []string `json:"symbols_defined" msgpack:"symbols_defined"`
+			// 获取信号量（如果达到 numThreads 则阻塞）
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }() // 释放信号量
 
-	// 引用表: 调用了什么符号 (用于构建脏链接图)
-	SymbolsReferenced []string `json:"symbols_referenced" msgpack:"symbols_referenced"`
+			fmt.Printf("🧵 Thread processing: %s\n", path)
 
-	// 文件元数据: 用于增量更新检查
-	FilePath  string `json:"file_path" msgpack:"file_path"`
-	UpdatedAt int64  `json:"updated_at" msgpack:"updated_at"` // Unix Timestamp
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/workflow/merger.go:Merger"> 
-type Merger struct {
-	MergerAgent                      *agent.Agent
-	LocalFileToSaveSelectedContextTo string
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/context/selector.go:Selector.expandDependencies"> 
-func (s *Selector) expandDependencies(seeds []string, allChunks map[string]*models.Chunk) map[string]struct{} {
-	resultSet := make(map[string]struct{})
-
-	// 1. 初始化结果集，并收集所有种子 Chunk 引用的符号
-	uniqueSymbols := make(map[string]struct{})
-
-	for _, id := range seeds {
-		// 种子本身必须包含在结果中
-		resultSet[id] = struct{}{}
-
-		chunk, ok := allChunks[id]
-		if !ok {
-			continue
-		}
-
-		// 收集该 Chunk 引用的符号 (Level 1 -> 引用 -> Level 2 定义)
-		for _, refSymbol := range chunk.SymbolsReferenced {
-			// 过滤掉单字符或常见干扰项
-			if len(refSymbol) > 1 {
-				uniqueSymbols[refSymbol] = struct{}{}
+			if err := RunIncrementalIndexing(path); err != nil {
+				fmt.Printf("❌ Error indexing %s: %v\n", path, err)
+				errChan <- err
 			}
-		}
+		}(root)
 	}
 
-	// 转换 Set 为 Slice
-	symbolList := make([]string, 0, len(uniqueSymbols))
-	for sym := range uniqueSymbols {
-		symbolList = append(symbolList, sym)
+	wg.Wait()
+	close(errChan)
+
+	if len(errChan) > 0 {
+		return fmt.Errorf("parallel indexing completed with %d errors", len(errChan))
 	}
 
-	// 2. 【核心优化】批量查询反向索引
-	// 调用 index_client.go 中的 GetUnionLinks (使用 Redis SUNION)
-	if len(symbolList) > 0 {
-		targetIDs, err := storage.Indexer.GetUnionLinks(symbolList)
+	fmt.Println("✅ Parallel indexing finished successfully.")
+	return nil
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/analysis/indexer.go:RunIncrementalIndexing"> 
+func RunIncrementalIndexing(projectRoot string) error {
+	return filepath.Walk(projectRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			fmt.Printf("⚠️ Error fetching dependencies: %v\n", err)
-			// 出错时降级：仅返回种子，不中断流程
+			return err
+		}
+		if info.IsDir() {
+			// 忽略常见非代码目录
+			if strings.HasPrefix(info.Name(), ".") || info.Name() == "vendor" || info.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		ext := filepath.Ext(path)
+		if ext != ".go" && ext != ".ts" && ext != ".tsx" {
+			return nil
+		}
+
+		// 2. 增量检查 (Check Metadata)
+		lastMod, _ := storage.FileMetaKey.HGet(path)
+		if info.ModTime().Unix() <= lastMod {
+			return nil // 跳过未修改文件
+		}
+
+		fmt.Printf("🔍 Indexing: %s\n", path)
+
+		// 3. 解析代码 (Parse)
+		var chunks []*models.Chunk
+		var parseErr error
+
+		if ext == ".go" {
+			chunks, parseErr = ParseGoFile(path)
 		} else {
-			// 3. 将查找到的定义者加入结果集
-			for _, tid := range targetIDs {
-				// 必须检查 tid 是否在当前加载的 allChunks 中
-				// (防止引用了已被删除的文件或未加载的模块)
-				if _, exists := allChunks[tid]; exists {
-					resultSet[tid] = struct{}{}
+			// 假设 ParseTSFile 在同包下的 parser_ts_sidecar.go 中定义
+			chunks, parseErr = ParseTSFile(path)
+		}
+
+		if parseErr != nil {
+			fmt.Printf("⚠️ Parse Error %s: %v\n", path, parseErr)
+			return nil
+		}
+
+		// 4. 存储与索引 (Store & Index)
+		for _, chunk := range chunks {
+			chunk.UpdatedAt = time.Now().Unix()
+
+			// A. 存储 Chunk 内容 (Hash)
+			if _, err := storage.ChunkStorage.HSet(chunk.ID, chunk); err != nil {
+				fmt.Printf("❌ DB Error: %v\n", err)
+			}
+
+			// B. 【核心修复】建立反向索引 (Set: Symbol -> ChunkIDs)
+			// 这使得 Selector 可以通过 Symbol 找到定义它的 Chunk
+			for _, symbol := range chunk.SymbolsDefined {
+				if len(symbol) < 2 {
+					continue
+				}
+				// 写入 Redis Set: sys/idx/sym/{symbol}
+				if err := storage.Indexer.AddSymbolLink(symbol, chunk.ID); err != nil {
+					fmt.Printf("⚠️ Index Error: %v\n", err)
 				}
 			}
 		}
-	}
 
-	return resultSet
-} </Chunk>
+		// 5. 更新元数据 (标记该文件已处理)
+		storage.FileMetaKey.HSet(path, info.ModTime().Unix())
 
-<Chunk id="/Users/yang/SysEvoV2/workflow/goal_runner.go:GoalRunner.ExecuteGoal"> 
-func (r *GoalRunner) ExecuteGoal(goal string, contextSelectModel, CodeImproveModel *llm.Model) error {
-	// 1. 获取上下文
-	chunks, err := r.Selector.SelectRelevantChunks(goal, contextSelectModel)
-	if err != nil {
-		return err
-	}
-
-	var contextStr string
-	for _, file := range r.Selector.FilesMustInclude {
-		contextStr += fmt.Sprintf("<File name=\"%s\"> \n%s </File>\n\n", file, utils.ReadFile(file))
-	}
-
-	for _, c := range chunks {
-		contextStr += fmt.Sprintf("<Chunk id=\"%s\"> \n%s </Chunk>\n\n", c.ID, c.Body)
-	}
-
-	r.ExportContextToFile(goal, contextStr)
-
-	if CodeImproveModel == nil {
 		return nil
-	}
-	// 2. 调用生成
-	return r.EditorAgent.Call(map[string]any{
-		agent.UseModel: CodeImproveModel,
-		"Goal":         goal,
-		"Context":      contextStr,
 	})
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/analysis/indexer.go:generateGoSkeleton"> 
-func generateGoSkeleton(fn *ast.FuncDecl, fset *token.FileSet) string {
-	// 浅拷贝 AST 节点，避免修改原结构影响后续处理
-	tempFn := *fn
-	// 替换函数体为一个空的 BlockStmt
-	tempFn.Body = &ast.BlockStmt{
-		List: []ast.Stmt{
-			&ast.ExprStmt{X: &ast.Ident{Name: "..."}}, // 占位符
-		},
-		Lbrace: fn.Body.Lbrace,
-		Rbrace: fn.Body.Rbrace,
-	}
-
-	var buf bytes.Buffer
-	printer.Fprint(&buf, fset, &tempFn)
-	return buf.String()
-} </Chunk>
-
-<Chunk id="/Users/yang/SysEvoV2/utils/textFromfile.go:ReadFile"> 
-func ReadFile(filename string) string {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		fmt.Printf("Error reading file %s: %v\n", filename, err)
-		return ""
-	}
-	return strings.TrimSpace(string(content))
 } </Chunk>
 
 <Chunk id="/Users/yang/SysEvoV2/agent/agent.go:Agent"> 
@@ -619,5 +1061,56 @@ type Agent struct {
 	// CallBackBeforeToolCall func(toolCall *FunctionCall, CallMemory map[string]any) error
 
 	ToolCallRunningMutext interface{}
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/analysis/indexer.go:ParseGoFile"> 
+func ParseGoFile(path string) ([]*models.Chunk, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+
+	var chunks []*models.Chunk
+
+	// 遍历 AST 顶级声明
+	for _, decl := range node.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			// 提取函数或方法
+			chunks = append(chunks, extractGoFunc(d, fset, path, content))
+		case *ast.GenDecl:
+			// 提取类型定义 (struct, interface)
+			for _, spec := range d.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					chunks = append(chunks, extractGoType(d, typeSpec, fset, path, content))
+				}
+			}
+		}
+	}
+
+	return chunks, nil
+} </Chunk>
+
+<Chunk id="/Users/yang/SysEvoV2/llm/model.go:Model"> 
+type Model struct {
+	Client          *openai.Client
+	ApiKey          string // API key for authentication
+	SystemMessage   string
+	BaseURL         string // Base URL for the OpenAI API, can be empty for default
+	Name            string
+	TopP            float32
+	TopK            float32
+	Temperature     float32
+	ToolInPrompt    *ToolInPrompt
+	avgResponseTime time.Duration
+	lastReceived    time.Time
+	requestPerMin   float64
+	mutex           sync.RWMutex
 } </Chunk>
 

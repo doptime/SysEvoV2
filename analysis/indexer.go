@@ -114,7 +114,7 @@ func RunIncrementalIndexing(projectRoot string) error {
 				fmt.Printf("❌ DB Error: %v\n", err)
 			}
 
-			// B. 【核心修复】建立反向索引 (Set: Symbol -> ChunkIDs)
+			// B. 建立反向索引 (Set: Symbol -> ChunkIDs)
 			// 这使得 Selector 可以通过 Symbol 找到定义它的 Chunk
 			for _, symbol := range chunk.SymbolsDefined {
 				if len(symbol) < 2 {
@@ -171,8 +171,12 @@ func ParseGoFile(path string) ([]*models.Chunk, error) {
 // extractGoFunc 提取函数/方法 Chunk
 func extractGoFunc(fn *ast.FuncDecl, fset *token.FileSet, path string, content []byte) *models.Chunk {
 	name := fn.Name.Name
+	chunkType := models.ChunkTypeFunction // 默认为 Function
+
 	// 处理 Receiver (方法): User.Save
 	if fn.Recv != nil && len(fn.Recv.List) > 0 {
+		chunkType = models.ChunkTypeMethod // 标记为 Method
+
 		recvType := ""
 		expr := fn.Recv.List[0].Type
 		// 处理指针 *User 和普通 User
@@ -201,7 +205,7 @@ func extractGoFunc(fn *ast.FuncDecl, fset *token.FileSet, path string, content [
 
 	return &models.Chunk{
 		ID:                id,
-		Type:              "Function",
+		Type:              chunkType,
 		Skeleton:          skeleton,
 		Body:              fullBody,
 		SymbolsDefined:    []string{name},            // 定义了自己
@@ -219,9 +223,18 @@ func extractGoType(decl *ast.GenDecl, spec *ast.TypeSpec, fset *token.FileSet, p
 	end := fset.Position(decl.End()).Offset
 	fullBody := string(content[start:end])
 
+	// 细分 Type 为 Struct 或 Interface
+	chunkType := models.ChunkTypeType // 默认兜底
+	switch spec.Type.(type) {
+	case *ast.StructType:
+		chunkType = models.ChunkTypeStruct
+	case *ast.InterfaceType:
+		chunkType = models.ChunkTypeInterface
+	}
+
 	return &models.Chunk{
 		ID:                id,
-		Type:              "Type",
+		Type:              chunkType,
 		Skeleton:          fullBody, // 对于 Type，骨架即全文
 		Body:              fullBody,
 		SymbolsDefined:    []string{name},
