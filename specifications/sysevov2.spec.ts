@@ -1,15 +1,33 @@
 /**
  * Project: SysEvoV2 (Automated Code Evolution System)
- * Version: v2.3 (TS-Spec Edition)
- * Status: Core Features Ready
- * Architecture: Monorepo (Golang + TypeScript)
+ * Version: v2.4 (Manifest Compliant)
+ * Target: Developers & AI Agents
  */
 
 // ========================================================
-// SECTION 1: 核心数据模型
+// SECTION 0: 元数据清单 (The Manifest)
 // ========================================================
 
-/** 代码的最小原子单位 (AST Chunk) */
+/**
+ * [Manifest] 文件的自我描述
+ * SysEvoV2 的自我认知核心。
+ */
+export const Meta_Context = {
+    project: "SysEvoV2 (Automated Code Evolution System)",
+    version: "2.4",
+    status: "Core Features Ready",
+    architecture: "Monorepo (Golang + TypeScript)",
+    description: "基于 AST 感知与混合检索的自动化代码修改系统。核心策略：菱形选择 (Diamond Selection)。"
+};
+
+// ========================================================
+// SECTION 1: 核心数据模型 (Data Protocols)
+// ========================================================
+
+/**
+ * [Protocol] 代码原子 (AST Chunk)
+ * SysEvoV2 将源码切分为语义块而非行号。
+ */
 export interface Chunk {
     id: string; // filepath:Signature
     type: 'Function' | 'Struct' | 'Interface' | 'Method' | 'Class';
@@ -19,7 +37,10 @@ export interface Chunk {
     symbols_referenced: string[];
 }
 
-/** 云端 LLM 输出的原子修改指令 */
+/**
+ * [Protocol] 代码修改指令
+ * 云端 LLM 输出的原子操作，严禁使用行号。
+ */
 export interface CodeModification {
     target_chunk_id: string;
     action_type: 'MODIFY' | 'DELETE' | 'CREATE_FILE';
@@ -33,7 +54,7 @@ export interface CodeModification {
 
 /**
  * [Component A] 代码库分析与索引
- * Core: analysis/indexer.go, analyzers/ts/index.js
+ * Core: analysis/indexer.go
  * Flow: Incremental Scan -> AST Chunking -> Redis Storage
  */
 export function Component_A_Codebase_Analysis() {
@@ -62,32 +83,63 @@ export function Component_C_Generation_Editing() {
 }
 
 // ========================================================
-// SECTION 3: 具体任务与特性
+// SECTION 3: 具体任务与特性 (Tasks & Features)
 // ========================================================
 
-/** 实现 Go AST 解析 (FuncDecl, GenDecl) */
-export function Task_Parser_Go() {}
+/**
+ * [Task] Go AST 解析
+ * Location: analysis/parser_go.go
+ * Details: 提取 FuncDecl, GenDecl。
+ */
+export function Task_Parser_Go() {
+    // 产生 Chunk 数据
+    const _output: Chunk = null;
+}
 
-/** 实现 TS AST 解析 (Sidecar Mode) */
-export function Task_Parser_TS() {}
+/**
+ * [Task] TS AST 解析 (Sidecar)
+ * Location: analyzers/ts/index.js
+ * Details: Node.js 子进程解析。
+ */
+export function Task_Parser_TS() {
+    const _output: Chunk = null;
+}
 
-/** 防止方法选中但宿主结构体丢失 */
+/**
+ * [Task] 结构体定义补全
+ * Logic: 防止选中方法但丢失宿主结构体 (Orphan Method Problem)。
+ */
 export function Task_Ensure_Struct_Definitions() {}
 
-/** 文件选中率 > 50% 时自动读取全量文件 */
+/**
+ * [Feature] 自动升格 (Auto-Promotion)
+ * Logic: 单文件 Chunk 选中率 > 50% 时，读取全量文件。
+ */
 export function Feature_Auto_Promotion() {}
 
-/** 基于 AST 的精准代码替换 (无行号) */
-export function Task_AST_Editor() {}
+/**
+ * [Task] AST 编辑器
+ * Location: editing/ast_editor.go
+ * Logic: 基于 TargetChunkID 进行精准字节替换。
+ */
+export function Task_AST_Editor() {
+    // 消费 CodeModification 协议
+    const _input: CodeModification = null;
+}
 
-/** Goimports & Prettier 集成 */
+/**
+ * [Task] 导入修复 (Import Fixer)
+ * Logic: Goimports / Prettier
+ */
 export function Task_Import_Fixer() {}
 
 // ========================================================
-// SECTION 4: 进度看板 (Progress Dashboard)
+// SECTION 4: 进度管理 (Progress Tracking)
 // ========================================================
 
-export const Progress_Completed = [
+/** 已完成的核心模块 */
+export const Status_Done = [
+    Meta_Context, // 自身元数据已就绪
     Component_A_Codebase_Analysis,
     Component_B_Context_Selector,
     Component_C_Generation_Editing,
@@ -96,11 +148,13 @@ export const Progress_Completed = [
     Task_AST_Editor
 ];
 
-export const Progress_Polishing = [
-    Feature_Auto_Promotion, // 刚合入，需观察
+/** 正在打磨或刚合入的特性 */
+export const Status_Developing = [
+    Feature_Auto_Promotion,
     Task_Ensure_Struct_Definitions
 ];
 
-export const Progress_Todo = [
-    Task_Import_Fixer // 目前仅支持 Goimports，TS 待完善
+/** 待办或仅部分支持的特性 */
+export const Status_Todo = [
+    Task_Import_Fixer // 目前仅支持 Go，TS 支持待完善
 ];
