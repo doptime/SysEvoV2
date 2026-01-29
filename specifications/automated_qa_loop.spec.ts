@@ -1,7 +1,8 @@
 /**
- * Project: Ouroboros (Automated Evolution Loop)
- * Version: 5.0 (Evolutionary Core)
- * Target: Machine Agents
+ * Project: Ouroboros (Holographic Replay Engine)
+ * Version: 13.0 (The Final Definition)
+ * Target: Systems Architects & AI Engineers
+ * Context: 基于“函数拟合”与“可逆重放”的终极自动化分析闭环。
  */
 
 // ========================================================
@@ -10,14 +11,23 @@
 
 /**
  * [Manifest] 文件的自我描述
- * 核心逻辑：定义行为契约 -> 客户端验证 -> 参数进化。
+ * 核心哲学：
+ * 1. Fitting over Sampling: 用拟合函数代替原始离散点，化解维度灾难。
+ * 2. Replay is Truth: 采样必须足以支撑逆向重建，实现真实轨迹的后端分析。
+ * 3. Whitebox Knowledge: 利用源码可知性，预判关键拟合模型。
  */
 export const Meta_Context = {
     project: "Project Ouroboros",
-    version: "5.0",
-    description: "基于行为契约 (Behavior Contracts) 的参数进化与验证系统。",
-    core_formula: "Client_Assertion -> Fail_Report -> Config_Mutation -> Re-Test",
-    status: "Active"
+    version: "13.0",
+    description: "基于函数拟合特征提取与全息行为重放的自动化演进系统。",
+    core_formula: "Reconstructible_Telemetry -> Functional_Fitting -> LLM_Coefficient_Analysis -> Optimization",
+    // 关键机制
+    mechanisms: [
+        "Functional Abstraction: 将 60fps 数据流压缩为数学函数特征 (e.g. Parabola, Sigmoid)",
+        "Holographic Replay: 确保采样数据包含 RNG 种子与 Input 序列，支持 100% 服务端复现",
+        "Predefined Probes: 预置通用物理探针 (Volume, VisibleArea) 并支持配置化"
+    ],
+    status: "Final Architecture"
 };
 
 // ========================================================
@@ -25,41 +35,76 @@ export const Meta_Context = {
 // ========================================================
 
 /**
- * [Protocol] 行为契约 (The Contract)
- * 定义在 GameConfig 中，指导客户端如何判定“成功”或“失败”。
+ * [Protocol] 拟合特征包 (Fitted Feature Packet)
+ * 解决维度灾难的核心：传输规律，而非数据。
  */
-export interface BehaviorContract {
-    id: string;             // e.g., "jump_height_check"
-    trigger_event: string;  // e.g., "input_jump_press"
+export interface FittedFeaturePacket {
+    target_id: string; // e.g. "player_jump_trajectory"
     
-    // 简单的逻辑表达式，客户端 JS 直接执行
-    // "player.position.y > 2.0 within 1.0s"
-    assertion: {
-        target: string;     // "player"
-        property: string;   // "position.y"
-        operator: ">" | "<" | "==";
-        value: number;
-        time_window: number; // 秒
-    };
+    // 拟合模型类型
+    // LLM 根据源码预判应使用何种模型 (e.g. 代码里有 AddForce -> Parabola)
+    model_type: "linear" | "polynomial_2" | "exponential" | "sigmoid" | "fourier";
+
+    // 核心系数 (The Essence)
+    // e.g. 对于抛物线，a=重力因子, vertex=最高点
+    coefficients: Record<string, number>;
+
+    // 拟合残差 (Residual)
+    // 如果残差过大，说明物理表现背离了设计模型 (e.g. 发生了意外碰撞)
+    fitting_error: number; 
+
+    // 关键事件点
+    key_events: Array<{
+        time: number;
+        event: "apex" | "collision" | "input_start";
+    }>;
 }
 
 /**
- * [Protocol] 失败报告 (The Feedback)
- * 只有当契约被破坏时，才会生成此数据。
- * 极简原则：只包含“当事对象”。
+ * [Protocol] 全息重放帧 (Holographic Replay Frame)
+ * 解决模拟失真的核心：确保可以逆向重建。
  */
-export interface FailureReport {
-    contract_id: string;    // 哪个契约挂了
+export interface ReplayPacket {
+    session_id: string;
     
-    // 进化所需的最小上下文
-    context: {
-        current_value: number;  // 实际跳了 1.5米
-        expected_value: number; // 期望跳 2.0米
-        
-        // 当事对象的关键参数 (用于 LLM 决定调整哪个参数)
-        // e.g., { "jumpForce": 5, "gravity": 10, "mass": 1 }
-        actor_config_snapshot: Record<string, any>;
+    // 环境初始态
+    initial_state: {
+        level_id: string;
+        rng_seed: number;     // 核心：确定性随机种子
+        physics_tick_rate: number;
     };
+
+    // 压缩的输入流 (Input Stream)
+    // 仅记录 Input 变化瞬间，而非每帧
+    input_stream: Array<{
+        tick: number;
+        actions: Record<string, any>; // e.g. { "jump": true, "axis_x": 0.8 }
+    }>;
+
+    // 校验哈希 (用于验证重放是否偏离)
+    sync_checkpoints: Array<{
+        tick: number;
+        player_pos_hash: string;
+    }>;
+}
+
+/**
+ * [Protocol] 预定义探针配置 (Probe Configuration)
+ * 解决配置繁琐问题：通用属性预定义。
+ */
+export interface ProbeConfig {
+    target_selector: string; // e.g. "Tag:Enemy"
+    
+    // 预定义度量维度 (Predefined Metrics)
+    metrics: Array<
+        | "spatial_volume"       // 包围盒体积
+        | "screen_visible_area"  // 屏幕占比
+        | "movement_kinetic_energy" // 动能
+        | "interaction_density"  // 交互频率
+    >;
+
+    // 采样频率策略
+    sampling_strategy: "per_tick" | "on_change" | "adaptive";
 }
 
 // ========================================================
@@ -67,72 +112,87 @@ export interface FailureReport {
 // ========================================================
 
 /**
- * [Project] 进化闭环总览
- * Flow: 
- * 1. Playwright 跑游戏。
- * 2. 客户端 JS 监控 BehaviorContract。
- * 3. 失败 -> 发送 FailureReport。
- * 4. SysEvoV2 读取 Report -> 修改 GameConfig.json -> 重跑。
+ * [Project] 拟合与重放引擎
+ * Flow:
+ * 1. 客户端(或WorldModel) 运行游戏，流式传输 ReplayPacket。
+ * 2. 服务端 Replay Engine 重建 3D 场景。
+ * 3. Fitting Engine 实时计算 FittedFeaturePacket。
+ * 4. LLM 分析系数 (Coefficients) 与残差，输出优化建议。
  */
-export function Project_Ouroboros_Evolution() {
+export function Project_Ouroboros_Holographic() {
     // 依赖链
 }
 
 /**
- * [Phase 1] 客户端裁判 (The Client Judge)
- * Goal: 在浏览器内实现极轻量的断言逻辑。
- * Logic: 不Dump全量数据，只在 Update 循环中 Check `if (val < threshold)`.
+ * [Phase 1] 全息记录层 (The Recorder)
+ * Goal: 以最小带宽记录足以完全重建的数据。
  */
-export function Phase_1_Client_Judge() {
-    const _tasks = [Task_Contract_Monitor, Task_Targeted_Reporter];
+export function Phase_1_Holographic_Recording() {
+    const _tasks = [Task_Input_Serializer, Task_Sync_Hash_Generator];
 }
 
 /**
- * [Phase 2] 配置进化 (Config Evolution)
- * Goal: 根据失败差距，调整物理参数。
- * Logic: "跳得不够高(Diff -0.5) -> 增加 jumpForce (+10%) -> 重试"。
- */
-export function Phase_2_Config_Evolution() {
-    const _tasks = [Task_Parameter_Mutator, Task_Regression_Check];
-}
-
-/**
- * [Task] 契约监控器
- * Target: "frontend/src/debug/ContractMonitor.ts"
- * Logic:
- * 1. 解析 JSON 中的 contracts。
- * 2. 监听事件，启动 Timer。
- * 3. 每一帧检查条件。
- */
-export function Task_Contract_Monitor() {
-    const _schema: BehaviorContract = null;
-}
-
-/**
- * [Task] 定向报告器
+ * [Phase 2] 重建与拟合层 (The Reconstruction)
+ * Goal: 在服务端无头环境中重跑，并进行数学拟合。
  * Logic: 
- * 1. 断言失败瞬间，捕获 Actor 的当前 Config。
- * 2. POST /api/evolution/report
+ * - 冷启动：使用 WorldModel 模拟操作。
+ * - 成熟期：使用真实用户的 ReplayPacket 回放。
  */
-export function Task_Targeted_Reporter() {
-    const _schema: FailureReport = null;
+export function Phase_2_Reconstruction_Fitting() {
+    const _tasks = [Task_Headless_Replay_Engine, Task_World_Model_Sim, Task_Functional_Fitter];
 }
 
 /**
- * [Task] 参数变异器
- * Role: SysEvoV2 (LLM)
- * Prompt Strategy:
- * "当前 jumpForce=5，导致实际高度 1.5 < 目标 2.0。请根据物理常识修改 jumpForce。"
- * Action: 直接修改 `GameConfig.json`。
+ * [Phase 3] 系数分析层 (The Analyst)
+ * Goal: LLM 分析数学特征。
+ * Logic: "抛物线二次项系数 a 绝对值过大 -> 重力感太强 -> 建议调整 Gravity Scale。"
  */
-export function Task_Parameter_Mutator() {}
+export function Phase_3_Coefficient_Analysis() {
+    const _tasks = [Task_LLM_Function_Analyst];
+}
 
 /**
- * [Task] 回归检查
- * Logic: 确保参数调整后，没有破坏其他通过的契约。
- * (简单的 Pass Rate 统计)
+ * [Task] 输入序列化器
+ * Logic: 拦截底层 Input System，记录操作帧。
  */
-export function Task_Regression_Check() {}
+export function Task_Input_Serializer() {
+    const _output: ReplayPacket = null;
+}
+
+/**
+ * [Task] 世界模型模拟器 (World Model Sim)
+ * Role: 冷启动代理。
+ * Logic: 在没有真实用户数据时，使用强化学习或启发式 Agent 遍历关卡，生成初始 ReplayPacket。
+ */
+export function Task_World_Model_Sim() {}
+
+/**
+ * [Task] 无头重放引擎
+ * Logic: 加载 ReplayPacket，以超实时速度 (TimeScale > 10) 在服务端复现游戏过程。
+ * Benefit: 可以在重放时动态挂载任意新的 Probe，无需客户端更新。
+ */
+export function Task_Headless_Replay_Engine() {}
+
+/**
+ * [Task] 函数拟合器 (Functional Fitter)
+ * Logic: 
+ * 1. 缓冲一段时序数据 (e.g. 跳跃全过程)。
+ * 2. 根据源码特征 (Source Code Knowledge) 选择拟合模型。
+ * 3. 使用最小二乘法计算 Coefficients 和 Residual。
+ */
+export function Task_Functional_Fitter() {
+    const _output: FittedFeaturePacket = null;
+}
+
+/**
+ * [Task] LLM 函数分析师
+ * Input: FittedFeaturePacket
+ * Prompt Strategy: 
+ * "检测到跳跃轨迹拟合为抛物线，但残差 (Fitting Error) 在后半段突然增大。
+ * 这意味着发生了非预期的物理干涉（可能是碰撞盒卡住）。
+ * 且顶点高度系数低于预期 20%，建议检查 JumpForce。"
+ */
+export function Task_LLM_Function_Analyst() {}
 
 // ========================================================
 // SECTION 3: 进度管理 (Progress Tracking)
@@ -140,14 +200,15 @@ export function Task_Regression_Check() {}
 
 /** 正在实施 */
 export const Status_Developing = [
-    Phase_1_Client_Judge,
-    Task_Contract_Monitor,
-    Task_Targeted_Reporter
+    Phase_1_Holographic_Recording,
+    Task_Input_Serializer,
+    Task_Headless_Replay_Engine
 ];
 
 /** 待办 */
 export const Status_Todo = [
-    Phase_2_Config_Evolution,
-    Task_Parameter_Mutator,
-    Task_Regression_Check
+    Phase_2_Reconstruction_Fitting,
+    Task_Functional_Fitter, // 核心难点：高效拟合算法
+    Task_World_Model_Sim,   // 核心难点：冷启动 Agent
+    Task_LLM_Function_Analyst
 ];
