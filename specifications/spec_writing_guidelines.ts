@@ -1,6 +1,6 @@
 /**
  * Project: SysEvoV2 Meta-Specifications
- * Version: 2.1 (Integrity Edition)
+ * Version: 2.2 (Gestalt Edition)
  * Target: Developers & AI Agents
  */
 
@@ -15,9 +15,12 @@
  */
 export const Meta_Context = {
     project: "SysEvoV2 Meta-Specifications",
-    version: "2.1",
+    version: "2.2",
     target_audience: ["Developers", "AI Agents"],
-    description: "定义 SysEvoV2 兼容规格说明书的编写原则与标准模式。",
+    // [NEW] 恒定愿景：无论实现路径如何颠覆，此字段定义了项目存在的根本理由 (The Why)。
+    invariant_vision: "建立一套标准化的元规格体系，确保 AI 与人类在快速迭代中保持认知格式塔的完整性。",
+    // [MODIFIED] 描述：描述当前版本的具体实现策略与范围 (The How & What)。
+    description: "定义 SysEvoV2 兼容规格说明书的编写原则，引入 invariant_vision 以锚定项目初衷。",
     core_philosophy: "Code is Context. Exports are Visibility. JSDoc is Skeleton."
 };
 
@@ -45,6 +48,7 @@ export function Guideline_Master_Rule() {
 /**
  * [Principle 1] 清单模式 (Manifest Pattern)
  * Rule: 文件头部必须定义并导出 `Meta_Context` 对象。
+ * Update: 必须包含 `invariant_vision` 以对抗迭代漂移。
  */
 export function Principle_Manifest_Pattern() {
     // 参见 SECTION 0
@@ -132,8 +136,9 @@ export function Template_Progress_Tracking() {
 
 export const Checklist_Compliance = [
     "1. Manifest: 是否导出了 Meta_Context?",
-    "2. Visibility: 是否使用了 export 关键字?",
-    "3. Intent: 是否将业务描述写在了 JSDoc 中?",
-    "4. Integrity: 所有 Task 是否都已归档入 Status 数组? (无孤儿任务)",
-    "5. Dependency: 是否通过引用 interface 建立了数据依赖?"
+    "2. Gestalt: 是否定义了 invariant_vision 来锚定核心问题?", // [NEW]
+    "3. Visibility: 是否使用了 export 关键字?",
+    "4. Intent: 是否将业务描述写在了 JSDoc 中?",
+    "5. Integrity: 所有 Task 是否都已归档入 Status 数组? (无孤儿任务)",
+    "6. Dependency: 是否通过引用 interface 建立了数据依赖?"
 ];

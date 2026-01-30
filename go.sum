@@ -20,6 +20,8 @@ github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/r
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
 github.com/doptime/config v0.0.0-20250322030901-0115e7134058 h1:jLWan3JIBM2xGeKWV70CuDhRv81BiOIyqGMPFxuI7/c=
 github.com/doptime/config v0.0.0-20250322030901-0115e7134058/go.mod h1:/WWdYOF8R1FVqIhPmlmX90B5bbuK2k1pCeIlubt+/Fw=
+github.com/doptime/doptime v0.1.0 h1:pT4RV7AF3g1xbTnmxeAl2vpGs7CgH2eHDTA6gJfZFwA=
+github.com/doptime/doptime v0.1.0/go.mod h1:ePd2ZOo1UEDs2rpLUTuPraQ/KpzZBTajTgXOEx4S7hw=
 github.com/doptime/logger v0.0.0-20241013090925-4b12ee9d0b17 h1:2NEAL69piCy6nwkA7kskW2tvkfSj8oh3drzv+LA59AM=
 github.com/doptime/logger v0.0.0-20241013090925-4b12ee9d0b17/go.mod h1:ilMlBlMQF0rCOpoxzQm5pDHAAdBH3v+3H+urGUEo27I=
 github.com/doptime/redisdb v0.0.0-20260119071523-702dccd71bce h1:nRtUrVVdB5AfpP9NYwMruSCG3WRziRahuesujV+6KgU=

@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/doptime/config v0.0.0-20250322030901-0115e7134058
+	github.com/doptime/doptime v0.1.0
 	github.com/doptime/redisdb v0.0.0-20260119071523-702dccd71bce
 	github.com/dustin/go-humanize v1.0.1
 	github.com/mitchellh/mapstructure v1.5.0
