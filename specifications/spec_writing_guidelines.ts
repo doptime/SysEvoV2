@@ -1,6 +1,6 @@
 /**
  * Project: SysEvoV2 Meta-Specifications
- * Version: 2.2 (Gestalt Edition)
+ * Version: 2.3 (Case-Driven Edition)
  * Target: Developers & AI Agents
  */
 
@@ -15,13 +15,13 @@
  */
 export const Meta_Context = {
     project: "SysEvoV2 Meta-Specifications",
-    version: "2.2",
+    version: "2.3",
     target_audience: ["Developers", "AI Agents"],
     // [NEW] 恒定愿景：无论实现路径如何颠覆，此字段定义了项目存在的根本理由 (The Why)。
     invariant_vision: "建立一套标准化的元规格体系，确保 AI 与人类在快速迭代中保持认知格式塔的完整性。",
     // [MODIFIED] 描述：描述当前版本的具体实现策略与范围 (The How & What)。
-    description: "定义 SysEvoV2 兼容规格说明书的编写原则，引入 invariant_vision 以锚定项目初衷。",
-    core_philosophy: "Code is Context. Exports are Visibility. JSDoc is Skeleton."
+    description: "定义 SysEvoV2 兼容规格说明书的编写原则，引入 Case-Driven 机制以防止随机漫游式优化。",
+    core_philosophy: "Code is Context. Exports are Visibility. History is Immutable."
 };
 
 // ========================================================
@@ -38,11 +38,14 @@ export const Meta_Context = {
  * 关键 Requirements 必须写在注释里。
  * * 4. 引用即完整 (Reference as Integrity):
  * 所有的 Task 函数必须被某个 Status 数组引用，严禁“孤儿任务”。
+ * * 5. 优化即案例 (Optimization as Case Study): [NEW]
+ * 任何系统级的重构或优化，必须首先定义它所解决的 Case。拒绝没有 Case 支撑的“凭空设计”。
  */
 export function Guideline_Master_Rule() {
     Principle_Manifest_Pattern();
     Principle_JSDoc_Driven_L1();
     Principle_Referential_Integrity();
+    Principle_Anchored_Optimization(); // [NEW]
 }
 
 /**
@@ -77,6 +80,17 @@ export function Principle_Referential_Integrity() {
     // Anti-Pattern: 定义了 Task_A 但没有任何 Status 数组包含它。
 }
 
+/**
+ * [Principle 4] 锚定优化 (Anchored Optimization) [NEW]
+ * Rule: 所有的优化措施（Solution Map）必须锚定在具体的 Case 上。
+ * 1. 增量式记录：不要修改旧的 Case，而是追加新的 Case。
+ * 2. 历史不可变：已解决的 Case 是系统的“判例法”，它们解释了系统为何演变成现在的样子（Why it is）。
+ * 3. 严禁随意删除 Case，除非该业务领域彻底消亡。
+ */
+export function Principle_Anchored_Optimization() {
+    // 参见 SECTION 5
+}
+
 // ========================================================
 // SECTION 2: 命名规范 (Naming Conventions)
 // ========================================================
@@ -93,7 +107,8 @@ export function Standard_Naming_Prefixes() {
         "Goal_",       // 目标
         "Feature_",    // 特性
         "Define_",     // 数据定义
-        "Status_"      // 状态数组
+        "Status_",     // 状态数组
+        "Case_"        // [NEW] 演进案例/Corner Case
     ];
 }
 
@@ -116,6 +131,7 @@ export function Template_Data_Protocol() {
 export function Template_Task_Definition() {
     /**
      * [Task] 实现功能
+     * @solves Case_Login_Timeout // [NEW] 显式链接到 Case
      */
     function Task_Implement_Feature() {
         const _schema: Template_Data_Protocol = null;
@@ -131,14 +147,55 @@ export function Template_Progress_Tracking() {
 }
 
 // ========================================================
-// SECTION 4: 检查清单 (Compliance Checklist)
+// SECTION 5: 演进案例库 (Evolutionary Case Registry) [NEW]
+// ========================================================
+
+/**
+ * [Template] 演进案例 (Evolution Case)
+ * 用于记录驱动系统演进的真实用户场景、Corner Cases 或技术债。
+ * 这是一个只增不减的“判例库”。
+ */
+export function Template_Evolution_Case() {
+    
+    /**
+     * [Structure] 案例标准结构
+     */
+    const Case_Structure_Definition = {
+        id: "Case_Name_Identifier",
+        type: "User_Scenario" || "Corner_Case" || "Performance_Bottleneck",
+        // 用户故事：具体发生了什么？(The "Ma Huateng" Context)
+        user_story: "用户在弱网环境下快速点击提交按钮，导致重复订单。",
+        // 根本原因：为什么现有系统无法处理？
+        root_cause: "前端防抖仅在 UI 层，API 层缺乏幂等性检查。",
+        // 解决方案映射：指向具体的 Tasks 或 Protocols
+        solution_map: [
+            "Protocol_Idempotency_Token", // 指向协议
+            "Task_API_Deduplication"      // 指向任务
+        ],
+        // 状态：解决与否
+        status: "Resolved"
+    };
+
+    /**
+     * [Example] 实际案例
+     */
+    const Case_2026_Ghost_Click = {
+        type: "Corner_Case",
+        user_story: "自动化测试中，脚本点击速度过快(1ms)，React 状态未更新即触发二次点击，导致断言失败。",
+        solution_map: ["Task_Inject_Human_Delay"]
+    };
+}
+
+// ========================================================
+// SECTION 6: 检查清单 (Compliance Checklist)
 // ========================================================
 
 export const Checklist_Compliance = [
     "1. Manifest: 是否导出了 Meta_Context?",
-    "2. Gestalt: 是否定义了 invariant_vision 来锚定核心问题?", // [NEW]
-    "3. Visibility: 是否使用了 export 关键字?",
-    "4. Intent: 是否将业务描述写在了 JSDoc 中?",
-    "5. Integrity: 所有 Task 是否都已归档入 Status 数组? (无孤儿任务)",
-    "6. Dependency: 是否通过引用 interface 建立了数据依赖?"
+    "2. Gestalt: 是否定义了 invariant_vision 来锚定核心问题?",
+    "3. Case-Driven: 所有的重大重构是否有对应的 Case_ 支撑? [NEW]",
+    "4. Visibility: 是否使用了 export 关键字?",
+    "5. Intent: 是否将业务描述写在了 JSDoc 中?",
+    "6. Integrity: 所有 Task 是否都已归档入 Status 数组? (无孤儿任务)",
+    "7. History: 是否保留了已解决的 Case 以作为架构设计的上下文?"
 ];
