@@ -1,11 +1,11 @@
 /**
- * Project: VisualTelemetry (The Industrial Standard)
- * Version: 16.0 (Final RTM - Gestalt Edition)
+ * Project: VisualTelemetry (Project Ouroboros)
+ * Version: Standardized (Current)
  * Target: Industry Standard Specification
  * Philosophy: 
- * 1. Dimensional K-Lines for Compression (Data Efficiency).
- * 2. Topological Ranks for Robustness (Logic Stability).
- * 3. Recursive Attention for Resource Management (Compute Efficiency).
+ * 1. Perception: Universal K-Lines for Any Signal (Visual/Logic/Virtual).
+ * 2. Action: Choreography as Code (Time-aligned, Mock-enabled).
+ * 3. Diagnosis: Correlation of Variance (Input vs Output).
  */
 
 // ========================================================
@@ -18,16 +18,63 @@
  */
 export const Meta_Context = {
     project: "Project VisualTelemetry",
-    version: "16.0",
-    status: "Standardized",
-    // [NEW] 恒定愿景：无论战术如何从“自愈”变为“防御”，此初衷永恒不变。
+    version: "Standardized (Current)",
+    target_audience: ["Developers", "AI Agents"],
+    // [Invariant] 恒定愿景
     invariant_vision: "构建连接 3D 运行时与开发时的自动化闭环，将不可观测的物理手感转化为可度量、可验证的工程指标。",
-    // 描述：当前版本的具体战术形态 (The How)
-    description: "基于 K 线观测、位序拓扑与递归注意力的自动化物理演进系统。",
+    // [Description] 描述：陈述系统当前的固有属性，而非变更过程。
+    description: "定义基于通用 K 线插座、时间轴动作编排与相关性诊断的自动化演进系统。确立了以全维感知为基础、动作编排为手段、相关性验证为核心的闭环架构。",
     core_architecture: {
-        sensing: "Entropy-Guided K-Line Sampling",
-        verification: "Topological Rank Contracts",
-        evolution: "Recursive Attention & Ablative Iteration"
+        sensing: "Universal Signal Socket (Visual + Logic + Virtual)",
+        acting: "Action Timeline Protocol (ATP)",
+        verification: "Marker-Aligned Correlation & Rank Topology"
+    }
+};
+
+// ========================================================
+// SECTION 5: 演进案例库 (Evolutionary Case Registry)
+// ========================================================
+
+/**
+ * [Registry] 系统的判例库。
+ * 这些案例定义了系统各项功能存在的根本原因 (The Why)。
+ */
+export const Registry_Evolution_Cases = {
+    Case_Dynamic_Visuals: {
+        id: "Case_Dynamic_Visuals",
+        type: "User_Scenario",
+        user_story: "自动化测试未能捕捉按钮旋转(Rotation)动效的错误，因为早期版本仅监控 AABB 包围盒。",
+        solution_map: ["Define_Physical_State_Extended", "Task_Attribute_Active_Bind"]
+    },
+    Case_Virtual_Telemetry: {
+        id: "Case_Virtual_Telemetry",
+        type: "Architecture_Gap",
+        user_story: "飞行器引擎推力是纯后端逻辑数据，无法通过 DOM 监控接入。",
+        solution_map: ["Task_Virtual_Channel_Push"]
+    },
+    Case_Logic_State_Divergence: {
+        id: "Case_Logic_State_Divergence",
+        type: "Logic_Bug",
+        user_story: "量角器游戏视觉显示60度，但内部逻辑判定为59度，导致误判。",
+        solution_map: ["Task_Signal_Binding_Hook"]
+    },
+    Case_Adhoc_Instrumentation: {
+        id: "Case_Adhoc_Instrumentation",
+        type: "Ops_Bottleneck",
+        user_story: "LLM 诊断时需要临时监控未埋点的变量。",
+        solution_map: ["Protocol_Dynamic_Directive"]
+    },
+    Case_Input_Output_Correlation: {
+        id: "Case_Input_Output_Correlation",
+        type: "Diagnosis_Failure",
+        user_story: "输入剧烈变化（疯狂拖拽）但输出纹丝不动，系统未能识别这种‘无响应’死锁。",
+        solution_map: ["Protocol_Action_Timeline", "Task_Marker_Alignment"]
+    },
+    Case_SideEffect_Isolation: {
+        id: "Case_SideEffect_Isolation",
+        type: "Testing_Constraint",
+        user_story: "需要调试‘支付成功’后的动画，但不能产生真实订单。",
+        solution_map: ["Protocol_Action_Timeline (Network Mock)"]
     }
 };
 
@@ -37,16 +84,35 @@ export const Meta_Context = {
 
 /**
  * [Standard] 原子指标集
- * 任何兼容 VisualTelemetry 的探针必须支持的基础数据类型。
+ * 包含物理、性能、UI 及逻辑信号的全集。
  */
 export const Atomic_Metric_Set = {
-    // 物理层
+    // 物理层 (Spatial Physics)
     spatial: ["aabb_volume", "velocity_magnitude", "kinetic_energy"],
-    // 交互层
-    interaction: ["input_impulse_integral", "collision_force_max"],
-    // 性能层
-    compute: ["execution_time_ms", "memory_allocation_bytes"]
+    
+    // 性能层 (Performance)
+    compute: ["execution_time_ms", "memory_allocation_bytes"],
+    
+    // UI 物理属性 (UI Physics)
+    // @solves Case_Dynamic_Visuals
+    ui_physics: ["rotation", "opacity", "scale", "z_index"],
+    
+    // 逻辑信号 (Logic Signals)
+    // @solves Case_Logic_State_Divergence
+    logic: ["score", "game_state_val", "custom_metric"]
 };
+
+/**
+ * [Define] 扩展物理状态结构
+ * 用于标准化 UI 组件的上报数据。
+ */
+export interface Define_Physical_State_Extended {
+    x: number; y: number;
+    width: number; height: number;
+    rotation?: number; // Normalized 0-360
+    opacity?: number;
+    scale?: number;
+}
 
 // ========================================================
 // SECTION 2: 数据协议 (Data Protocols)
@@ -54,72 +120,70 @@ export const Atomic_Metric_Set = {
 
 /**
  * [Protocol] 维度 K 线 (Dimensional K-Line)
- * 工业标准的时序压缩格式。
+ * 核心标准结构，兼容所有类型的信号。
  */
 export interface DimensionalKLine {
     target_uid: string;   // 对象唯一标识
-    metric_key: string;   // 指标名称
+    metric_key: string;   // 指标名称 (支持 rotation, score, etc.)
     time_window: number;  // 聚合窗口(ms)
     
     // OHLC (Open, High, Low, Close)
     ohlc: [number, number, number, number];
     
     // 辅助元数据
-    entropy: number;      // 信息熵 (用于注意力调度)
+    // [Invariant] 保留字段，用于支持复杂的注意力调度算法
+    entropy: number;      // 信息熵
     sample_count: number; // 原始采样点数
 }
 
 /**
+ * [Protocol] 动作时间轴协议 (ATP)
+ * @solves Case_Input_Output_Correlation, Case_SideEffect_Isolation
+ */
+export interface Protocol_Action_Timeline {
+    op: "EXECUTE_CHOREOGRAPHY";
+    scenario_id: string;
+    strategy: "human_like" | "mechanical";
+    timeline: Array<{
+        offset_ms: number;
+        // 动作原语: POINTER_MOVE, CLICK, TYPE, WAIT
+        action: string; 
+        params?: Record<string, any>;
+        // 环境控制: NETWORK_MOCK (用于副作用隔离)
+        mock_context?: {
+            url_pattern: string;
+            response_body: any;
+        };
+        // [Critical] 用于对齐诊断的标记
+        marker?: string; // e.g., "DRAG_START"
+    }>;
+}
+
+/**
+ * [Protocol] 动态指令协议
+ * @solves Case_Adhoc_Instrumentation
+ */
+export interface Protocol_Dynamic_Directive {
+    op: "MOUNT_SIGNAL";
+    path: string;
+    source: {
+        type: "DOM_SELECTOR" | "GLOBAL_VAR" | "VIRTUAL_PUSH";
+        selector?: string;
+        varPath?: string;
+    };
+}
+
+/**
  * [Protocol] 位序契约 (Rank Topology Contract)
- * 定义系统的拓扑稳定性。
+ * 用于验证 UI 层级或逻辑关系的稳定性。
  */
 export interface RankContract {
     contract_id: string;
-    // 期望的偏序关系 (Partial Order)
-    // e.g. "Bullet" > "Hero" > "Creep"
     expected_order: string[]; 
-    // 违规容忍度
     tolerance: {
         frames: number;
-        value_margin: number; // 允许数值抖动的范围
+        value_margin: number;
     };
-}
-
-/**
- * [Protocol] 注意力配置 (Attention Budget Profile)
- * 定义系统的观测策略。
- */
-export interface AttentionProfile {
-    total_budget_ms: number; // 每帧允许的最大观测耗时
-    
-    // 动态权重策略
-    policies: {
-        // 高熵优先：K 线波动大的对象获得更多关注
-        entropy_weight: number;
-        // 异常优先：曾触发 Rank 违规的对象获得更多关注
-        history_weight: number;
-        // 玩家优先：玩家视锥内的对象获得更多关注
-        visibility_weight: number;
-    };
-}
-
-/**
- * [Protocol] 演进指令 (Evolution Directive)
- * 包含两层修正指令。
- */
-export interface EvolutionDirective {
-    type: "Game_Tuning" | "Attention_Shift";
-    
-    // 如果是游戏调整
-    parameter_deltas?: Record<string, number>;
-    
-    // 如果是注意力调整
-    target_focus_shift?: {
-        target_uid: string;
-        sampling_rate_multiplier: number;
-    };
-    
-    reasoning: string; // LLM 生成的语义解释
 }
 
 // ========================================================
@@ -127,98 +191,89 @@ export interface EvolutionDirective {
 // ========================================================
 
 /**
- * [System] 衔尾蛇引擎主循环
- * 1. Sensing: 根据当前 AttentionProfile 采集 K 线。
- * 2. Verify: 检查 RankContract 是否违规。
- * 3. Decide: 
- * - 违规 -> 生成 Game_Tuning 指令。
- * - 未违规但熵低/效用低 -> 生成 Attention_Shift 指令 (去别处看看)。
- * 4. Apply: 应用指令，进入下一帧/下一轮。
- */
-export function System_Main_Loop() {
-    // 这是一个抽象描述，实际由下述 Phase 组成
-}
-
-/**
- * [Phase 1] 感知与压缩 (Sensing & Compression)
- * 负责高效地从黑盒环境中提取信息。
+ * [Phase 1] 感知与压缩 (Sensing)
+ * 负责建立从运行时到数据流的通用连接。
  */
 export function Phase_1_Sensing() {
     const _tasks = [
-        Task_Saliency_Allocator, // 分配注意力预算
-        Task_KLine_Sampler       // 执行 K 线采样
+        Task_Saliency_Allocator,    // 预算管理
+        Task_KLine_Sampler,         // 核心 K 线生成
+        Task_Virtual_Channel_Push,  // 虚拟信道
+        Task_Attribute_Active_Bind, // 逻辑属性绑定
+        Task_Dynamic_Directive_Mount// 动态挂载
     ];
 }
 
 /**
- * [Phase 2] 验证与诊断 (Verification & Diagnosis)
- * 负责判断当前状态是否健康。
+ * [Phase 2] 编排与行动 (Orchestration)
+ * 负责执行时间轴动作与环境模拟。
  */
-export function Phase_2_Verification() {
+export function Phase_2_Orchestration() {
     const _tasks = [
-        Task_Topology_Checker,   // 检查位序
-        Task_Anomaly_Detector    // 基于 K 线形态的异常检测
+        Task_Timeline_Executor,      // 执行 ATP 剧本
+        Task_Environment_Interceptor // 执行 Mock
     ];
 }
 
 /**
- * [Phase 3] 递归演进 (Recursive Evolution)
- * 负责系统的自我修正与探索。
+ * [Phase 3] 诊断与验证 (Diagnosis)
+ * 负责基于相关性与拓扑契约的健康度检查。
  */
-export function Phase_3_Evolution() {
+export function Phase_3_Diagnosis() {
     const _tasks = [
-        Task_Strategy_Planner,   // 决定是修游戏还是修眼镜
-        Task_Code_Synthesizer    // (可选) 生成参数补丁
+        Task_Topology_Checker,    // 静态/层级正确性
+        Task_Marker_Alignment     // 动态/交互响应性
     ];
-}
-
-/**
- * [Task] 显著性分配器
- * Logic: 根据熵、历史异常、视锥计算每个对象的 Priority。
- * Output: 每一帧的采样白名单。
- */
-export function Task_Saliency_Allocator() {
-    const _input: AttentionProfile = null;
 }
 
 /**
  * [Task] K 线采样器
- * Logic: 对白名单对象进行高频采样，并聚合为 OHLC。
+ * Logic: 聚合来自 DOM、Virtual、Signals 的所有数据，计算 OHLC 和 Entropy。
  */
-export function Task_KLine_Sampler() {
-    const _output: DimensionalKLine = null;
+export function Task_KLine_Sampler() {}
+
+/**
+ * [Task] 虚拟信道推送接口
+ * @solves Case_Virtual_Telemetry
+ * Logic: 提供 pushMetric(id, key, val) 接口，允许异构系统写入。
+ */
+export function Task_Virtual_Channel_Push() {}
+
+/**
+ * [Task] 逻辑属性绑定
+ * @solves Case_Logic_State_Divergence
+ * Logic: 将组件内部状态 (State) 绑定到监控流。
+ */
+export function Task_Attribute_Active_Bind() {}
+
+/**
+ * [Task] 时间轴执行器
+ * @solves Case_Input_Output_Correlation
+ * Logic: 解析 ATP，使用贝塞尔曲线插值执行动作，并双写 Marker 到数据流。
+ */
+export function Task_Timeline_Executor() {
+    const _input: Protocol_Action_Timeline = null;
 }
 
 /**
- * [Task] 拓扑检查器
- * Logic: 快速排序关键指标，比对 RankContract。
+ * [Task] 标记对齐分析器
+ * @solves Case_Input_Output_Correlation
+ * Logic: 提取 Marker 间区间，计算 Input 方差与 Output 方差的相关性。
  */
-export function Task_Topology_Checker() {
-    const _input: RankContract = null;
-}
-
-/**
- * [Task] 策略规划师 (LLM)
- * Role: 系统的总指挥。
- * Logic: 分析 K 线形态与拓扑违规，计算边际回报，决定下一步动作。
- */
-export function Task_Strategy_Planner() {
-    const _output: EvolutionDirective = null;
-}
+export function Task_Marker_Alignment() {}
 
 // ========================================================
 // SECTION 4: 进度看板 (Roadmap)
 // ========================================================
 
-export const Status_Core_Ready = [
+export const Status_Core_Capabilities = [
     Phase_1_Sensing,
-    Task_KLine_Sampler,
-    Phase_2_Verification,
-    Task_Topology_Checker
-];
-
-export const Status_Advanced_Features = [
     Task_Saliency_Allocator,
-    Phase_3_Evolution,
-    Task_Strategy_Planner
+    Task_KLine_Sampler,
+    Task_Virtual_Channel_Push,
+    Phase_2_Orchestration,
+    Task_Timeline_Executor,
+    Phase_3_Diagnosis,
+    Task_Topology_Checker,
+    Task_Marker_Alignment
 ];
