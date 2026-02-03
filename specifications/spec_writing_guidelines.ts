@@ -1,6 +1,6 @@
 /**
  * Project: SysEvoV2 Meta-Specifications
- * Version: 2.3 (Case-Driven Edition)
+ * Version: Standardized (Current)
  * Target: Developers & AI Agents
  */
 
@@ -15,13 +15,13 @@
  */
 export const Meta_Context = {
     project: "SysEvoV2 Meta-Specifications",
-    version: "2.3",
+    version: "2.4",
     target_audience: ["Developers", "AI Agents"],
-    // [NEW] 恒定愿景：无论实现路径如何颠覆，此字段定义了项目存在的根本理由 (The Why)。
+    // [Invariant] 恒定愿景：无论实现路径如何颠覆，此字段定义了项目存在的根本理由 (The Why)。
     invariant_vision: "建立一套标准化的元规格体系，确保 AI 与人类在快速迭代中保持认知格式塔的完整性。",
-    // [MODIFIED] 描述：描述当前版本的具体实现策略与范围 (The How & What)。
-    description: "定义 SysEvoV2 兼容规格说明书的编写原则，引入 Case-Driven 机制以防止随机漫游式优化。",
-    core_philosophy: "Code is Context. Exports are Visibility. History is Immutable."
+    // [Description] 描述：去除时间维度的描述，陈述系统当前的固有属性。
+    description: "定义 SysEvoV2 兼容规格说明书的编写原则，确立以演进案例为锚点、以副作用控制为边界的系统迭代范式。",
+    core_philosophy: "Code is Context. Diff is Risk. Intent is Permanent."
 };
 
 // ========================================================
@@ -38,20 +38,22 @@ export const Meta_Context = {
  * 关键 Requirements 必须写在注释里。
  * * 4. 引用即完整 (Reference as Integrity):
  * 所有的 Task 函数必须被某个 Status 数组引用，严禁“孤儿任务”。
- * * 5. 优化即案例 (Optimization as Case Study): [NEW]
+ * * 5. 优化即案例 (Optimization as Case Study):
  * 任何系统级的重构或优化，必须首先定义它所解决的 Case。拒绝没有 Case 支撑的“凭空设计”。
+ * * 6. 迭代即手术 (Iteration as Surgery):
+ * 修改必须遵循最小化原则，保留意图注释，严防结构性副作用。
  */
 export function Guideline_Master_Rule() {
     Principle_Manifest_Pattern();
     Principle_JSDoc_Driven_L1();
     Principle_Referential_Integrity();
-    Principle_Anchored_Optimization(); // [NEW]
+    Principle_Anchored_Optimization();
+    Principle_SideEffect_Control();
 }
 
 /**
  * [Principle 1] 清单模式 (Manifest Pattern)
- * Rule: 文件头部必须定义并导出 `Meta_Context` 对象。
- * Update: 必须包含 `invariant_vision` 以对抗迭代漂移。
+ * Rule: 文件头部必须定义并导出 `Meta_Context` 对象，且必须包含 `invariant_vision`。
  */
 export function Principle_Manifest_Pattern() {
     // 参见 SECTION 0
@@ -73,7 +75,7 @@ export function Principle_JSDoc_Driven_L1() {
  * [Principle 3] 引用完整性 (Referential Integrity)
  * Rule: “不引用即不存在”。
  * 1. 每一个定义的 `Task_` 函数，**必须** 至少出现在一个 `Status_` 聚合数组中。
- * 2. 如果任务被废弃，应移入 `Status_Deprecated` 或直接删除函数，而不是留在那成为“幽灵代码”。
+ * 2. 如果任务被废弃，应移入 `Status_Deprecated` 或直接删除函数。
  * Reason: 保证 AST 依赖图与项目进度视图的一致性。
  */
 export function Principle_Referential_Integrity() {
@@ -81,14 +83,43 @@ export function Principle_Referential_Integrity() {
 }
 
 /**
- * [Principle 4] 锚定优化 (Anchored Optimization) [NEW]
+ * [Principle 4] 锚定优化 (Anchored Optimization)
  * Rule: 所有的优化措施（Solution Map）必须锚定在具体的 Case 上。
  * 1. 增量式记录：不要修改旧的 Case，而是追加新的 Case。
- * 2. 历史不可变：已解决的 Case 是系统的“判例法”，它们解释了系统为何演变成现在的样子（Why it is）。
+ * 2. 历史不可变：已解决的 Case 是系统的“判例法”，它们解释了系统为何演变成现在的样子。
  * 3. 严禁随意删除 Case，除非该业务领域彻底消亡。
  */
 export function Principle_Anchored_Optimization() {
     // 参见 SECTION 5
+}
+
+/**
+ * [Principle 5] 副作用控制与最小化修改 (Side-Effect Control)
+ * Rule: 迭代必须是“外科手术式”的，而非“爆破式”的。
+ * * 1. 修改最小化 (Diff Minimization): 
+ * - 优先采用 **增量扩展** (Append) 而非 **结构重写** (Rewrite)。
+ * - 对于未变更的部分，显式标记 `[Retained]` 以告知 Reviewer 和 AI 保持现状。
+ * * 2. 意图驻留 (Intent Persistence):
+ * - **严禁删除** 解释“为什么这么做”的注释，即使该功能被暂时降级。
+ * - 字段的注释往往包含了对未来的规划（如 `entropy` 字段），删除它们等于丢失了系统的长期记忆。
+ * * 3. 结构兼容性 (Structural Compatibility):
+ * - 避免为了“代码洁癖”而删除看似无用但承载兼容性的字段。
+ * - 所有的删除操作必须有明确的 Case 证明该字段是有害的，否则一律保留。
+ */
+export function Principle_SideEffect_Control() {
+    /**
+     * [Anti-Pattern] 错误的洁癖
+     * 删除 `entropy` 字段，理由是“当前版本好像没用到”。
+     * Consequence: 下个版本要加回注意力调度时，不得不重新修改协议，破坏了接口稳定性。
+     */
+    
+    /**
+     * [Best Practice] 意图保留
+     */
+    interface ExampleProtocol {
+        // [Retained] 虽然 v2.0 暂时只用简单轮询，但保留熵值以支持未来的 AI 调度
+        entropy: number; 
+    }
 }
 
 // ========================================================
@@ -108,7 +139,11 @@ export function Standard_Naming_Prefixes() {
         "Feature_",    // 特性
         "Define_",     // 数据定义
         "Status_",     // 状态数组
-        "Case_"        // [NEW] 演进案例/Corner Case
+        "Case_",       // 演进案例
+        // 迭代标记 (通常用于注释或 JSDoc)
+        "Tag_Retained", // [Retained] 明确表示保留
+        "Tag_Modified", // [Modified] 明确表示修改
+        "Tag_New"       // [New] 明确表示新增
     ];
 }
 
@@ -131,7 +166,7 @@ export function Template_Data_Protocol() {
 export function Template_Task_Definition() {
     /**
      * [Task] 实现功能
-     * @solves Case_Login_Timeout // [NEW] 显式链接到 Case
+     * @solves Case_Login_Timeout // 显式链接到 Case
      */
     function Task_Implement_Feature() {
         const _schema: Template_Data_Protocol = null;
@@ -146,8 +181,30 @@ export function Template_Progress_Tracking() {
     // export const Status_Todo = [Task_Implement_Feature];
 }
 
+/**
+ * [Template] 迭代式更新模板
+ * 用于展示如何以最小化修改的方式进行版本升级。
+ */
+export function Template_Iterative_Update() {
+    
+    /**
+     * [Define] 数据协议 (v2.0)
+     * Base: v1.0
+     */
+    interface Define_Data_Protocol_v2 {
+        // [Retained] 核心 ID 保持不变，确保数据库兼容
+        uid: string;
+        
+        // [Modified] 精度提升：从 int 变为 float
+        value: number; 
+        
+        // [New] @solves Case_Time_Travel
+        timestamp_ns: number;
+    }
+}
+
 // ========================================================
-// SECTION 5: 演进案例库 (Evolutionary Case Registry) [NEW]
+// SECTION 5: 演进案例库 (Evolutionary Case Registry)
 // ========================================================
 
 /**
@@ -163,7 +220,7 @@ export function Template_Evolution_Case() {
     const Case_Structure_Definition = {
         id: "Case_Name_Identifier",
         type: "User_Scenario" || "Corner_Case" || "Performance_Bottleneck",
-        // 用户故事：具体发生了什么？(The "Ma Huateng" Context)
+        // 用户故事：具体发生了什么？
         user_story: "用户在弱网环境下快速点击提交按钮，导致重复订单。",
         // 根本原因：为什么现有系统无法处理？
         root_cause: "前端防抖仅在 UI 层，API 层缺乏幂等性检查。",
@@ -193,9 +250,10 @@ export function Template_Evolution_Case() {
 export const Checklist_Compliance = [
     "1. Manifest: 是否导出了 Meta_Context?",
     "2. Gestalt: 是否定义了 invariant_vision 来锚定核心问题?",
-    "3. Case-Driven: 所有的重大重构是否有对应的 Case_ 支撑? [NEW]",
-    "4. Visibility: 是否使用了 export 关键字?",
-    "5. Intent: 是否将业务描述写在了 JSDoc 中?",
-    "6. Integrity: 所有 Task 是否都已归档入 Status 数组? (无孤儿任务)",
-    "7. History: 是否保留了已解决的 Case 以作为架构设计的上下文?"
+    "3. Case-Driven: 所有的重大重构是否有对应的 Case_ 支撑?",
+    "4. Minimization: 修改是否遵循了最小化原则？(Diff check)",
+    "5. Intent: 是否保留了原有的设计意图注释？(No silence deletion)",
+    "6. Side-Effects: 删除字段前是否评估了潜在的结构性副作用？",
+    "7. Visibility: 是否使用了 export 关键字?",
+    "8. Integrity: 所有 Task 是否都已归档入 Status 数组?"
 ];
