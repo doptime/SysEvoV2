@@ -6,6 +6,7 @@
  * 1. Perception: Universal K-Lines for Any Signal (Visual/Logic/Virtual).
  * 2. Action: Choreography as Code (Time-aligned, Mock-enabled).
  * 3. Diagnosis: Correlation of Variance (Input vs Output).
+ * 4. Evolution: Sedimentation over Refactoring (Structure is Equilibrium).
  */
 
 // ========================================================
@@ -22,12 +23,24 @@ export const Meta_Context = {
     target_audience: ["Developers", "AI Agents"],
     // [Invariant] 恒定愿景
     invariant_vision: "构建连接 3D 运行时与开发时的自动化闭环，将不可观测的物理手感转化为可度量、可验证的工程指标。",
-    // [Description] 描述：陈述系统当前的固有属性，而非变更过程。
     description: "定义基于通用 K 线插座、时间轴动作编排与相关性诊断的自动化演进系统。确立了以全维感知为基础、动作编排为手段、相关性验证为核心的闭环架构。",
     core_architecture: {
         sensing: "Universal Signal Socket (Visual + Logic + Virtual)",
         acting: "Action Timeline Protocol (ATP)",
         verification: "Marker-Aligned Correlation & Rank Topology"
+    },
+    // [GOVERNANCE] 治理传递性声明 (Transitive Governance)
+    // 显式承诺本项目遵循 SysEvoV2 的演进物理学原则。
+    // 任何对此文件的修改，必须通过此治理策略的审查。
+    evolution_governance: {
+        // 策略: 沉积式 (只增不减，分层累积)
+        strategy: "Sedimentary Accumulation",
+        // 物理法则: 最小作用量 (优先追加接口，严禁重构核心)
+        physics: "Principle of Least Action",
+        // 意图管理: 严格驻留 (删除字段必须保留注释尸体)
+        intent_residency: "Strict",
+        // 终极目标: 结构均衡 (Structure is Equilibrium)
+        equilibrium_target: "Universal Input/Output Correlation"
     }
 };
 
@@ -37,13 +50,14 @@ export const Meta_Context = {
 
 /**
  * [Registry] 系统的判例库。
- * 这些案例定义了系统各项功能存在的根本原因 (The Why)。
+ * 这些案例是系统结构存在的根本理由。任何修改必须锚定于此。
  */
 export const Registry_Evolution_Cases = {
     Case_Dynamic_Visuals: {
         id: "Case_Dynamic_Visuals",
         type: "User_Scenario",
         user_story: "自动化测试未能捕捉按钮旋转(Rotation)动效的错误，因为早期版本仅监控 AABB 包围盒。",
+        // [Proof of Governance] 解决方案采用扩展而非重写，符合最小作用量
         solution_map: ["Define_Physical_State_Extended", "Task_Attribute_Active_Bind"]
     },
     Case_Virtual_Telemetry: {
@@ -88,6 +102,7 @@ export const Registry_Evolution_Cases = {
  */
 export const Atomic_Metric_Set = {
     // 物理层 (Spatial Physics)
+    // [Intent] 保留基础物理属性以兼容 v16.0 之前的算法
     spatial: ["aabb_volume", "velocity_magnitude", "kinetic_energy"],
     
     // 性能层 (Performance)
@@ -130,8 +145,9 @@ export interface DimensionalKLine {
     // OHLC (Open, High, Low, Close)
     ohlc: [number, number, number, number];
     
-    // 辅助元数据
-    // [Invariant] 保留字段，用于支持复杂的注意力调度算法
+    // [Intent Residency] 
+    // 该字段受 `evolution_governance.intent_residency` 保护。
+    // 即使当前未激活高级调度，保留此字段以维持向高级形态演进的结构通道。
     entropy: number;      // 信息熵
     sample_count: number; // 原始采样点数
 }
@@ -196,7 +212,7 @@ export interface RankContract {
  */
 export function Phase_1_Sensing() {
     const _tasks = [
-        Task_Saliency_Allocator,    // 预算管理
+        Task_Saliency_Allocator,    // [Structure] 即使算法退化，结构保留以维持均衡
         Task_KLine_Sampler,         // 核心 K 线生成
         Task_Virtual_Channel_Push,  // 虚拟信道
         Task_Attribute_Active_Bind, // 逻辑属性绑定
