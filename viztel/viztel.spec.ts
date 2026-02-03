@@ -19,7 +19,7 @@
  */
 export const Meta_Context = {
     project: "Project VisualTelemetry",
-    version: "Standardized (Current)",
+    version: "v18 Standardized",
     target_audience: ["Developers", "AI Agents"],
     // [Invariant] 恒定愿景
     invariant_vision: "构建连接 3D 运行时与开发时的自动化闭环，将不可观测的物理手感转化为可度量、可验证的工程指标。",
