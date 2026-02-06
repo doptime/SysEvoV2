@@ -22,7 +22,7 @@ export const Meta_Context = {
     // [Description] 描述：陈述系统当前的固有属性。
     description: "定义 SysEvoV2 兼容规格说明书的编写原则，确立以演进案例为锚点、以演进物理学为边界的系统迭代范式。",
     // [Philosophy] 核心哲学：结构即均衡，修改即微扰。
-    core_philosophy: "Code is Context. Diff is Risk. Intent is Permanent. Structure is Equilibrium."
+    core_philosophy: "Code is Context. Principle of Least Action: Minimize Git Diff. 不要强调本次内容修改. 要给出给出面向最均衡、准确的文档结构。 Intent is Permanent. 需要引入核心概念。描述闭环迭代逻辑。给出闭环迭代实现架构清单。"
 };
 
 // ========================================================
