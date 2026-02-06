@@ -6,14 +6,15 @@
 // === 基础 K 线单元 (Universal K-Line) ===
 
 export interface AggregatedMetric {
-    o: number; // Open
-    h: number; // High
-    l: number; // Low
-    c: number; // Close
-    
-    // [Evolution: Sedimentation]
-    // 即使当前版本未使用，保留字段槽位以兼容 SysEvoV1 的历史数据或未来的熵计算
-    cnt?: number; // Sample Count
+    /** Open: 初始值 */
+    o: number | null;
+    /** High: 最大值 */
+    h: number | null; 
+    /** Low: 最小值 */
+    l: number | null; 
+    /** Close: 结束值 */
+    c: number | null; 
+    cnt?: number;
 }
 
 // === 元素遥测数据 (The Node) ===
@@ -35,6 +36,7 @@ export interface ElementTelemetry {
     // 包含: 
     // - UI Physics: rotation, scale, opacity
     // - Virtual Logic: score, health, velocity
+    // - Audio: energy_rms, peak_level
     a?: Record<string, AggregatedMetric>;
 }
 
@@ -42,16 +44,15 @@ export interface ElementTelemetry {
 
 /**
  * [Modified] 统一遥测帧
- * 支持多源合流 (DOM + Virtual)
+ * 支持多源合流 (DOM + Virtual + Audio)
  */
 export interface TelemetryFrame {
     ts: number;         // Timestamp (ms)
-    dur: number;        // Duration (ms)
+    sid?: string;       // Scenario ID (Session Context)
     
-    // [New] 数据来源标记
-    // 用于后端区分处理逻辑 (e.g. "dom" 需要做热力图渲染，"virtual" 需要做数值分析)
-    sources?: ('dom' | 'virtual')[];
+    // 数据源标记，帮助后端快速路由
+    sources: ('dom' | 'virtual' | 'audio')[]; 
     
-    // Payload
-    data: Record<string, ElementTelemetry>; // Key: data-vt-id
+    // 拍平的节点映射: ID -> Data
+    data: Record<string, ElementTelemetry>;
 }

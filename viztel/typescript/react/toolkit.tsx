@@ -3,15 +3,13 @@
 // Role: React Integration Layer
 // Philosophy: "Declarative bindings for Imperative runtime."
 
-import React, { createContext, useContext, useMemo } from 'react';
-export { TelemetryScopeContext } from './useSignalBinding';
-import { TelemetryScopeContext } from './useSignalBinding';
-
-// === Types ===
+import React, { useContext, useMemo } from 'react';
+// @fix Case_Circular_Import: Import from standalone file
+import { TelemetryScopeContext } from './contexts'; 
 
 export interface TelemetryOptions {
     /** 显式监控的 CSS 属性 (Visual Physics) */
-    watch?: ('opacity' | 'scale' | 'rotation' | 'z-index' | 'x' | 'y')[];
+    watch?: ('opacity' | 'scale' | 'rotation' | 'z-index' | 'x' | 'y' | 'width' | 'height')[];
     
     /** 权重人为修正 (Attention Boost) */
     boost?: 'low' | 'high' | 'critical';
@@ -68,11 +66,5 @@ export const useTrack = (localId: string, options?: TelemetryOptions): Telemetry
     return useMemo(() => track(fullId, options), [fullId, JSON.stringify(options)]);
 };
 
-// === Re-exports for Convenience ===
-// 统一导出所有 React 相关 Hook
-export { 
-    useSignalBinding, 
-    useSignalBindings, 
-    useSignalRef, 
-    useHybridTelemetry 
-} from './useSignalBinding';
+// Re-export Context for consumers if needed, but internally we use the one from contexts.ts
+export { TelemetryScopeContext };

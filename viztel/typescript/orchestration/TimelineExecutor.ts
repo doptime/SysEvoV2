@@ -2,7 +2,7 @@
 // [Manifest]
 // Role: The Actor (Phase 2)
 // Philosophy: "Action is the seed of Causality. Markers are the timestamps of Intent."
-// @solves Case_Input_Output_Correlation, Case_SideEffect_Isolation
+// @solves Case_Input_Output_Correlation, Case_SideEffect_Isolation, Case_Singleton_Parallelism
 
 import { VirtualChannelManager } from '../VirtualChannelManager';
 
@@ -63,6 +63,9 @@ interface ExecutionState {
     activeMocks: Map<string, MockContext>;
 }
 
+// 使用 Symbol 确保原始 Fetch 的引用在全局是唯一的且不可篡改
+const FETCH_ORIGINAL = Symbol('VizTelFetchOriginal');
+
 // === Math Utilities (For Human-like Movement) ===
 
 function cubicBezier(t: number, p0: number, p1: number, p2: number, p3: number): number {
@@ -72,7 +75,6 @@ function cubicBezier(t: number, p0: number, p1: number, p2: number, p3: number):
 
 function humanLikePath(startX: number, startY: number, endX: number, endY: number, steps: number): Array<{x: number, y: number}> {
     const path: Array<{x: number, y: number}> = [];
-    // 随机扰动控制点，模拟手抖
     const ctrl1X = startX + (endX - startX) * 0.3 + (Math.random() - 0.5) * 50;
     const ctrl1Y = startY + (endY - startY) * 0.1 + (Math.random() - 0.5) * 30;
     const ctrl2X = startX + (endX - startX) * 0.7 + (Math.random() - 0.5) * 50;
@@ -80,7 +82,6 @@ function humanLikePath(startX: number, startY: number, endX: number, endY: numbe
     
     for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        // Ease-in-out
         const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
         path.push({
             x: cubicBezier(eased, startX, ctrl1X, ctrl2X, endX),
@@ -98,15 +99,13 @@ export class TimelineExecutor {
     private state: ExecutionState | null = null;
     private virtualChannel: VirtualChannelManager;
     
-    // Environment Control
-    private originalFetch: typeof fetch | null = null;
-    
     // Cursor Tracking (Internal State)
     private cursorX: number = 0;
     private cursorY: number = 0;
 
-    private constructor() {
-        this.virtualChannel = VirtualChannelManager.getInstance();
+    // @fix Case_Singleton_Parallelism: 允许注入 Channel 以支持并行测试隔离
+    public constructor(channel?: VirtualChannelManager) {
+        this.virtualChannel = channel || VirtualChannelManager.getInstance();
         this.trackCursor();
     }
 
@@ -135,34 +134,29 @@ export class TimelineExecutor {
             activeMocks: new Map()
         };
 
-        // Start Marker
+        // Start Marker: 显式注入因果起始
         this.pushMarker('__SCENARIO_START__', { id: timeline.scenario_id });
 
         try {
             for (const step of timeline.timeline) {
                 if (!this.state.isRunning) break;
                 
-                // Pause Control
                 while (this.state.isPaused) await this.sleep(100);
 
-                // Time Alignment
                 const now = performance.now();
                 const targetTime = this.state.startTime + step.offset_ms;
                 if (targetTime > now) {
                     await this.sleep(targetTime - now);
                 }
 
-                // Apply Mocks
                 if (step.mock_context) {
                     this.installMock(step.mock_context);
                 }
 
-                // Inject Marker (Truth Injection)
                 if (step.marker) {
                     this.pushMarker(step.marker, { action: step.action });
                 }
 
-                // Execute Action
                 await this.dispatchAction(step, timeline.strategy);
             }
         } catch (e) {
@@ -170,6 +164,7 @@ export class TimelineExecutor {
             this.pushMarker('__SCENARIO_ERROR__', { error: String(e) });
             return false;
         } finally {
+            // @fix Case_No_Completion_Signal: 无论成败，必须发送结束标记
             this.pushMarker('__SCENARIO_END__', { id: timeline.scenario_id });
             this.cleanup();
         }
@@ -206,7 +201,6 @@ export class TimelineExecutor {
             case 'WAIT':
                 await this.wait(params);
                 break;
-            // ... SCROLL, HOVER implementation similar
         }
     }
 
@@ -217,12 +211,12 @@ export class TimelineExecutor {
         if (!target) return;
 
         if (strategy === 'human_like') {
-            const path = humanLikePath(this.cursorX, this.cursorY, target.x, target.y, 20); // ~300ms
+            const path = humanLikePath(this.cursorX, this.cursorY, target.x, target.y, 20); 
             for (const p of path) {
                 this.dispatchMouseEvent('mousemove', p.x, p.y);
                 this.cursorX = p.x; 
                 this.cursorY = p.y;
-                await this.sleep(16); // 60fps
+                await this.sleep(16);
             }
         } else {
             this.dispatchMouseEvent('mousemove', target.x, target.y);
@@ -235,8 +229,6 @@ export class TimelineExecutor {
         this.dispatchMouseEvent('mousedown', x, y);
         this.dispatchMouseEvent('mouseup', x, y);
         this.dispatchMouseEvent('click', x, y);
-        
-        // [Causality] 记录物理点击事件到遥测流
         this.virtualChannel.pushMetric('__input__', 'click', 1);
     }
 
@@ -244,13 +236,9 @@ export class TimelineExecutor {
         const start = this.resolveCoordinates(params);
         if (!start || params.endX === undefined || params.endY === undefined) return;
 
-        // Move to start
         await this.moveCursor({ x: start.x, y: start.y }, strategy);
-        
-        // Down
         this.dispatchMouseEvent('mousedown', start.x, start.y);
         
-        // Move to end
         const duration = params.duration || 500;
         const steps = Math.max(10, Math.floor(duration / 16));
         
@@ -265,7 +253,6 @@ export class TimelineExecutor {
             await this.sleep(16);
         }
 
-        // Up
         this.dispatchMouseEvent('mouseup', this.cursorX, this.cursorY);
     }
 
@@ -286,7 +273,6 @@ export class TimelineExecutor {
     private async wait(params: ActionParams) {
         if (params.timeout) await this.sleep(params.timeout);
         if (params.condition) {
-            // Simple polling for selector
             const start = performance.now();
             while (!document.querySelector(params.condition)) {
                 if (performance.now() - start > 5000) throw new Error('Wait timeout');
@@ -297,34 +283,43 @@ export class TimelineExecutor {
 
     // === Side-Effect Isolation (Mocking) ===
 
+    /**
+     * [Isolation] 劫持 Fetch
+     * @fix Case_Fetch_Mock_Leak: 使用 Symbol 永久保存原始引用，防止劫持链条断裂
+     */
     private installMock(ctx: MockContext) {
-        if (!this.originalFetch) {
-            this.originalFetch = window.fetch;
-            // Override Fetch
-            window.fetch = async (input, init) => {
-                const url = input.toString();
-                // Check active mocks
-                for (const [pattern, mock] of this.state?.activeMocks || []) {
-                    if (url.includes(pattern)) {
-                        console.log(`[Timeline] Mock hit: ${url}`);
-                        if (mock.delay) await this.sleep(mock.delay);
-                        return new Response(JSON.stringify(mock.response_body), {
-                            status: mock.status || 200,
-                            headers: { 'Content-Type': 'application/json' }
-                        });
-                    }
-                }
-                // Fallback to original
-                return this.originalFetch!(input, init);
-            };
+        const win = window as any;
+        
+        // 1. 记录原始 Fetch (仅在第一次劫持时)
+        if (!win[FETCH_ORIGINAL]) {
+            win[FETCH_ORIGINAL] = win.fetch;
         }
+
+        // 2. 覆盖全局 Fetch
+        win.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = input.toString();
+            // 实时检查当前状态中的 Mock 映射
+            for (const [pattern, mock] of this.state?.activeMocks || []) {
+                if (url.includes(pattern)) {
+                    if (mock.delay) await this.sleep(mock.delay);
+                    return new Response(JSON.stringify(mock.response_body), {
+                        status: mock.status || 200,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+            }
+            // Fallback 到 Symbol 指向的真实原生 Fetch
+            return win[FETCH_ORIGINAL](input, init);
+        };
+        
         this.state?.activeMocks.set(ctx.url_pattern, ctx);
     }
 
     private cleanup() {
-        if (this.originalFetch) {
-            window.fetch = this.originalFetch;
-            this.originalFetch = null;
+        // @fix Case_Fetch_Mock_Leak: 强制归还原生 Fetch
+        const win = window as any;
+        if (win[FETCH_ORIGINAL]) {
+            win.fetch = win[FETCH_ORIGINAL];
         }
         this.state = null;
     }
@@ -337,17 +332,12 @@ export class TimelineExecutor {
             bubbles: true, clientX: x, clientY: y, view: window
         }));
         
-        // [Causality] 记录游标位置
         if (type === 'mousemove') {
-            // 使用 pushBatch 减少调用频次
-            // 这里的 id '__cursor__' 是系统保留字
             this.virtualChannel.pushBatch('__cursor__', { x, y });
         }
     }
 
     private pushMarker(name: string, meta: any) {
-        // Marker 本质上是一个时间戳信号，但在 Meta 中可以携带更多信息
-        // 为了兼容 K 线，我们把 timestamp 作为 Value
         this.virtualChannel.pushMetric('__markers__', name, performance.now());
     }
 
@@ -377,7 +367,6 @@ export class TimelineExecutor {
 
     private trackCursor() {
         document.addEventListener('mousemove', e => {
-            // Only track when not running orchestration to update initial pos
             if (!this.state?.isRunning) {
                 this.cursorX = e.clientX;
                 this.cursorY = e.clientY;
